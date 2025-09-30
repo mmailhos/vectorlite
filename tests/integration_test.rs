@@ -3,18 +3,6 @@ use std::path::Path;
 
 const TEST_DATASET_PATH: &str = "tests/datasets/github-issues.jsonl";
 
-
-#[derive(serde::Deserialize)]
-pub struct Issue {
-    pub html_url: String,
-    pub title: String,
-    pub comments: String,
-    pub body: String,
-    pub comment_length: u32,
-    pub text: String,
-    pub embeddings: Vec<f64>,
-}
-
 #[test]
 fn test_load_real_dataset() {
     // Test that we can load the real dataset without errors
