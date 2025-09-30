@@ -1,5 +1,7 @@
 use std::fs::File;
-use std::io::{ BufReader, BufRead, Error};
+use std::io::{self, BufRead, BufReader};
+
+const EMBEDDING_DIMENSION: usize = 768;
 
 #[derive(serde::Deserialize)]
 struct Issue {
@@ -32,34 +34,11 @@ impl VectorStore {
         self.data.push(embedding);
     }
 
-    fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
-        assert_eq!(a.len(), b.len(), "Vectors must have the same length");
-
-        let (mut dot, mut norm_a_sq, mut norm_b_sq) = (0.0, 0.0, 0.0);
-
-        for (&x, &y) in a.iter().zip(b.iter()) {
-            dot += x * y;
-            norm_a_sq += x * x;
-            norm_b_sq += y * y;
-        }
-
-        let norm_a = norm_a_sq.sqrt();
-        let norm_b = norm_b_sq.sqrt();
-
-        if norm_a == 0.0 || norm_b == 0.0 {
-            0.0
-        } else {
-            dot / (norm_a * norm_b)
-        }
-    }
-
-
-
     fn search(&self, query: &[f64], k: usize) -> Vec<(u64, f64)> {
-        let mut similarities: Vec<(u64, f64)> = self.data
+        let mut similarities = self.data
             .iter()
-            .map(|e| (e.id, Self::cosine_similarity(&e.embedding, query)))
-            .collect();
+            .map(|e| (e.id, cosine_similarity(&e.embedding, query)))
+            .collect::<Vec<_>>();
         
         similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         similarities.truncate(k);
@@ -67,23 +46,45 @@ impl VectorStore {
     }
 }
 
+fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
+    assert_eq!(a.len(), b.len(), "Vectors must have the same length");
 
-fn load_test_dataset(path: String, dimension: usize) -> Result<VectorStore, Error> {
+    let (mut dot, mut norm_a_sq, mut norm_b_sq) = (0.0, 0.0, 0.0);
+
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        dot += x * y;
+        norm_a_sq += x * x;
+        norm_b_sq += y * y;
+    }
+
+    let norm_a = norm_a_sq.sqrt();
+    let norm_b = norm_b_sq.sqrt();
+
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
+}
+
+fn load_test_dataset(path: &str, dimension: usize) -> Result<VectorStore, io::Error> {
     let mut vector_store = VectorStore::new(dimension, Vec::new());
     let file = File::open(path)?;
     let reader = BufReader::new(file);
-    let mut id_counter: u64 = 0;
-    for line in reader.lines() {
+    
+    for (id_counter, line) in reader.lines().enumerate() {
         let issue = serde_json::from_str::<Issue>(&line?)?;
         vector_store.insert(Embedding { 
-            id: id_counter,
+            id: id_counter as u64,
             embedding: issue.embeddings,
         });
-        id_counter += 1;
     }
-    return Ok(vector_store);
+    
+    Ok(vector_store)
 }
+
 fn main() {
-    let vector_store = load_test_dataset("dataset/github-embeddings-doy/issues-datasets-embedded.jsonl".to_string(), 768).unwrap();
-    println!("{}", vector_store.data.len());
+    let vector_store = load_test_dataset("dataset/github-embeddings-doy/issues-datasets-embedded.jsonl", EMBEDDING_DIMENSION)
+        .expect("Failed to load dataset");
+    println!("Loaded {} embeddings", vector_store.data.len());
 }
