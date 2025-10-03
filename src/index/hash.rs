@@ -10,7 +10,10 @@ pub struct HashIndex {
 
 impl HashIndex {
     pub fn new(dim: usize, data: HashMap<u64, Vector>) -> Self {
-        Self { dim, data }
+        Self { 
+            dim, 
+            data 
+        }
     }
 }
 

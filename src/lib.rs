@@ -1,6 +1,8 @@
 pub mod index;
 
 pub use index::flat::FlatIndex;
+pub use index::hash::HashIndex;
+pub use index::hnsw::HNSWIndex;
 
 pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 
@@ -98,4 +100,5 @@ mod tests {
         assert_eq!(results[0].id, 0); // Should match the first vector
         assert!((results[0].score - 1.0).abs() < 1e-10); // Perfect similarity
     }
+
 }
