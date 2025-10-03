@@ -14,7 +14,7 @@ impl FlatIndex {
 impl VectorIndex for FlatIndex {
     fn add(&mut self, vector: Vector) -> Result<(), String> {
         if vector.values.len() != self.dim {
-            return Err(format!("Vector dimension mismatch"));
+            return Err("Vector dimension mismatch".to_string());
         }
         if self.data.iter().any(|e| e.id == vector.id) {
             return Err(format!("Vector ID {} already exists", vector.id));

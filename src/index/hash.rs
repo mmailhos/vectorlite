@@ -20,7 +20,7 @@ impl HashIndex {
 impl VectorIndex for HashIndex {
     fn add(&mut self, vector: Vector) -> Result<(), String> {
         if vector.values.len() != self.dim {
-            return Err(format!("Vector dimension mismatch"));
+            return Err("Vector dimension mismatch".to_string());
         }
         if self.data.contains_key(&vector.id) {
             return Err(format!("Vector ID {} already exists", vector.id));

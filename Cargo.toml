@@ -3,6 +3,12 @@ name = "vectorlite"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["fast"]
+fast = []
+memory-optimized = []
+high-accuracy = []
+
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
 serde = { version = "1.0.228", features = ["derive"] }
@@ -11,3 +17,4 @@ bincode = "1.3"
 hnsw = "0.11.0"
 space = "0.17"
 rand = "0.8"
+clippy = "0.0.302"
