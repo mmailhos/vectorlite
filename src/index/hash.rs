@@ -1,8 +1,10 @@
 
+use serde::{Deserialize, Serialize};
+
 use crate::{Vector, VectorIndex, SearchResult, cosine_similarity};
 use std::collections::HashMap;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HashIndex {
     pub dim: usize,
     pub data: HashMap<u64, Vector>

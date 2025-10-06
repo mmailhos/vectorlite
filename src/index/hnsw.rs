@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::{Formatter, Debug};
 use rand::rngs::StdRng;
+use serde::{Deserialize, Serialize, Deserializer};
 use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
 use crate::{Vector, VectorIndex, SearchResult};
-struct Euclidean;
 
 const MAXIMUM_NUMBER_CONNECTIONS: usize = if cfg!(feature = "memory-optimized") {
     8
@@ -22,6 +22,9 @@ const MAXIMUM_NUMBER_CONNECTIONS_0: usize = if cfg!(feature = "memory-optimized"
     32 
 };
 
+#[derive(Default)]
+struct Euclidean;
+
 
 impl Metric<Vec<f64>> for Euclidean {
     type Unit = u64;
@@ -35,9 +38,13 @@ impl Metric<Vec<f64>> for Euclidean {
     }
 }
 
+#[derive(Serialize)]
 pub struct HNSWIndex {
+    #[serde(skip)]
     hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
+    #[serde(skip)]
     searcher: Searcher<u64>,
+
     dim: usize,
     // Mapping from custom ID to internal HNSW index
     id_to_index: HashMap<u64, usize>,
@@ -62,6 +69,42 @@ impl HNSWIndex {
     }
 }
 
+impl<'de> Deserialize<'de> for HNSWIndex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> 
+    where D: Deserializer<'de> 
+    {
+        // Use an anonymous struct to match the JSON structure
+        #[derive(Deserialize)]
+        struct Temp {
+            dim: usize,
+            vectors: HashMap<u64, Vector>,
+        }
+        
+        let data = Temp::deserialize(deserializer)?;
+        
+        let mut hnsw = Hnsw::new(Euclidean);
+        let mut searcher = Searcher::new();
+        
+        let mut new_id_to_index = HashMap::new();
+        let mut new_index_to_id = HashMap::new();
+        
+        for (id, vector) in &data.vectors {
+            let internal_index = hnsw.insert(vector.values.clone(), &mut searcher);
+            new_id_to_index.insert(*id, internal_index);
+            new_index_to_id.insert(internal_index, *id);
+        }
+        
+        Ok(HNSWIndex {
+            hnsw,
+            searcher,
+            dim: data.dim,
+            id_to_index: new_id_to_index,
+            index_to_id: new_index_to_id,
+            vectors: data.vectors,
+        })
+    }
+}
+
 impl VectorIndex for HNSWIndex {
     fn add(&mut self, vector: Vector) -> Result<(), String> {
         if vector.values.len() != self.dim {
@@ -81,7 +124,6 @@ impl VectorIndex for HNSWIndex {
         Ok(())
     }
     fn delete(&mut self, id: u64) -> Result<(), String> {
-        // Check if ID exists
         if !self.id_to_index.contains_key(&id) {
             return Err(format!("Vector ID {} does not exist", id));
         }
@@ -282,5 +324,49 @@ fn test_feature_flags() {
     
     // The actual connection values are tested at compile time
     // through the type system, so we just verify the struct works
+}
+
+#[test]
+fn test_serialization_deserialization() {
+    use serde_json;
+    
+    // Create an HNSW index with some data
+    let mut hnsw = HNSWIndex::new(3);
+    let vectors = vec![
+        Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
+        Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
+        Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
+    ];
+    
+    for vector in vectors {
+        assert!(hnsw.add(vector).is_ok());
+    }
+    
+    // Serialize to JSON
+    let serialized = serde_json::to_string(&hnsw).expect("Serialization should work");
+    
+    // Deserialize from JSON
+    let deserialized: HNSWIndex = serde_json::from_str(&serialized).expect("Deserialization should work");
+    
+    // Verify the deserialized index has the same properties
+    assert_eq!(deserialized.len(), 3);
+    assert_eq!(deserialized.dimension(), 3);
+    assert!(!deserialized.is_empty());
+    
+    // Verify we can retrieve vectors by ID
+    assert!(deserialized.get_vector(1).is_some());
+    assert!(deserialized.get_vector(2).is_some());
+    assert!(deserialized.get_vector(3).is_some());
+    
+    // Verify search works on the deserialized index
+    let query = vec![1.1, 0.1, 0.1];
+    let results = deserialized.search(&query, 2);
+    assert!(!results.is_empty());
+    assert!(results.len() <= 2);
+    
+    // Results should be sorted by score (highest first)
+    for i in 1..results.len() {
+        assert!(results[i-1].score >= results[i].score);
+    }
 }
 
