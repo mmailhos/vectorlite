@@ -1,9 +1,11 @@
 use thiserror::Error;
+use std::path::Path;
 
-// Candle imports
-use candle_core::Device;
+use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_transformers::models::bert::{BertModel, Config};
 use tokenizers::Tokenizer;
+
+const DEFAULT_EMBEDDING_MODEL: &str = "all-MiniLM-L6-v2";
 
 #[derive(Error, Debug)]
 pub enum EmbeddingError {
@@ -38,62 +40,106 @@ impl std::fmt::Debug for EmbeddingGenerator {
 }
 
 impl EmbeddingGenerator {
-    /// Create a new embedding generator using Candle with BERT
+    /// Create a new embedding generator using all-MiniLM-L6-v2 by default
     pub fn new() -> Result<Self> {
+        Self::new_from_path(&format!("./models/{}", DEFAULT_EMBEDDING_MODEL))
+    }
+
+    pub fn new_from_path(model_path: &str) -> Result<Self> {
         let device = Device::Cpu;
-        let dimension = 768; // BERT base dimension
-        
-        // For now, we'll create a placeholder implementation since loading real BERT models
-        // requires downloading large files and complex setup. In a real implementation, you would:
-        // 1. Download the model from Hugging Face using hf-hub
-        // 2. Load the config and weights
-        // 3. Create the BertModel with proper weights
-        
-        // Create a simple tokenizer for demonstration
-        let tokenizer = Tokenizer::new(tokenizers::models::bpe::BPE::default());
+        let (model, tokenizer, dimension) = Self::load_model_from_path(model_path, &device)?;
         
         Ok(Self {
-            model: Self::create_placeholder_model(&device)?,
+            model,
             tokenizer,
             device,
             dimension,
         })
     }
 
-    /// Generate embedding for the given text
-    pub fn generate_embedding(&self, text: &str) -> Result<Vec<f64>> {
-        // For now, return a placeholder embedding since we don't have a real model loaded
-        // In a real implementation, you would:
-        // 1. Tokenize the input text
-        // 2. Run the input through the BERT model
-        // 3. Extract the [CLS] token embedding or mean pool the outputs
-        // 4. Return the embedding as Vec<f64>
+    fn load_model_from_path(model_path: &str, device: &Device) -> Result<(BertModel, Tokenizer, usize)> {
+        let model_dir = Path::new(model_path);
         
-        // Placeholder: return a deterministic embedding for demonstration
-        // This creates embeddings that are similar for similar texts
-        let mut embedding = vec![0.0; self.dimension];
-        
-        // Use a simple hash of the text to create deterministic but varied embeddings
-        let text_hash = text.chars().map(|c| c as u32).sum::<u32>() as f64;
-        let text_len = text.len() as f64;
-        
-        for (i, val) in embedding.iter_mut().enumerate() {
-            // Create a pattern that's similar for similar texts
-            let base_value = (text_hash * (i as f64 + 1.0)).sin() * 0.1;
-            let length_factor = (text_len * (i as f64 + 1.0)).cos() * 0.05;
-            *val = base_value + length_factor;
+        let tokenizer_path = model_dir.join("tokenizer.json");
+        if !tokenizer_path.exists() {
+            return Err(EmbeddingError::ModelLoading(format!(
+                "Tokenizer file not found: {}. Please ensure the model is properly downloaded.",
+                tokenizer_path.display()
+            )));
         }
+        let tokenizer = Tokenizer::from_file(&tokenizer_path)
+            .map_err(|e| EmbeddingError::ModelLoading(format!("Failed to load tokenizer: {}", e)))?;
+        
+        let config_path = model_dir.join("config.json");
+        if !config_path.exists() {
+            return Err(EmbeddingError::ModelLoading(format!(
+                "Config file not found: {}. Please ensure the model is properly downloaded.",
+                config_path.display()
+            )));
+        }
+        let config_str = std::fs::read_to_string(&config_path)
+            .map_err(|e| EmbeddingError::ModelLoading(format!("Failed to read config: {}", e)))?;
+        let config: Config = serde_json::from_str(&config_str)
+            .map_err(|e| EmbeddingError::ModelLoading(format!("Failed to parse config: {}", e)))?;
+        
+        let dimension = config.hidden_size;
+        
+        let model_file = model_dir.join("pytorch_model.bin");
+        if !model_file.exists() {
+            return Err(EmbeddingError::ModelLoading(format!(
+                "Model weights file not found: {}. Please ensure the model is properly downloaded.",
+                model_file.display()
+            )));
+        }
+        let weights = candle_nn::VarBuilder::from_pth(&model_file, DType::F32, device)
+            .map_err(|e| EmbeddingError::ModelLoading(format!("Failed to load weights: {}", e)))?;
+        let model = BertModel::load(weights, &config)
+            .map_err(|e| EmbeddingError::ModelLoading(format!("Failed to create model: {}", e)))?;
+        
+        Ok((model, tokenizer, dimension))
+    }
+
+
+    pub fn generate_embedding(&self, text: &str) -> Result<Vec<f64>> {
+        // Tokenize input
+        let encoding = self.tokenizer.encode(text, true)
+            .map_err(|e| EmbeddingError::Tokenization(format!("Tokenization failed: {}", e)))?;
+        let token_ids = encoding.get_ids();
+        
+        // Convert to tensor
+        let input_ids = Tensor::new(token_ids, &self.device)
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to create input tensor: {}", e)))?;
+        let input_ids = input_ids.unsqueeze(0)
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to add batch dimension: {}", e)))?;
+        
+        // Create token type ids (all zeros for single sequence)
+        let token_type_ids = Tensor::zeros((1, input_ids.dim(1).unwrap()), input_ids.dtype(), &self.device)
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to create token type ids: {}", e)))?;
+        
+        // Run through BERT model
+        let outputs = self.model.forward(&input_ids, &token_type_ids, None)
+            .map_err(|e| EmbeddingError::Inference(format!("Model inference failed: {}", e)))?;
+        
+        // Extract [CLS] token embedding (first token)
+        let cls_embedding = outputs.i((0, 0))
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to extract CLS token: {}", e)))?;
+        
+        // Convert to Vec<f64> (convert from F32 to F64)
+        let embedding_f32: Vec<f32> = cls_embedding.to_vec1()
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to convert to Vec: {}", e)))?;
+        let embedding: Vec<f64> = embedding_f32.into_iter().map(|x| x as f64).collect();
         
         // L2 normalize
         let norm: f64 = embedding.iter().map(|x| x * x).sum::<f64>().sqrt();
-        if norm > 0.0 {
-            for val in &mut embedding {
-                *val /= norm;
-            }
-        }
+        let normalized: Vec<f64> = if norm > 0.0 {
+            embedding.iter().map(|x| x / norm).collect()
+        } else {
+            embedding
+        };
         
-        Ok(embedding)
+        Ok(normalized)
     }
+
 
     pub fn dimension(&self) -> usize {
         self.dimension
@@ -105,35 +151,6 @@ impl EmbeddingGenerator {
             .collect()
     }
 
-    fn create_placeholder_model(device: &Device) -> Result<BertModel> {
-        // This is a placeholder - in a real implementation you would load
-        // the actual BERT model from Hugging Face
-        // For now, we'll create a minimal config and model
-        let config = Config {
-            vocab_size: 30522,
-            hidden_size: 768,
-            num_hidden_layers: 12,
-            num_attention_heads: 12,
-            intermediate_size: 3072,
-            hidden_act: candle_transformers::models::bert::HiddenAct::Gelu,
-            hidden_dropout_prob: 0.1,
-            max_position_embeddings: 512,
-            type_vocab_size: 2,
-            initializer_range: 0.02,
-            layer_norm_eps: 1e-12,
-            pad_token_id: 0,
-            ..Default::default()
-        };
-        
-        // Create a minimal BERT model
-        // Note: This is a simplified version for demonstration
-        // In practice, you'd load pre-trained weights
-        let vb = candle_nn::VarBuilder::zeros(candle_core::DType::F32, device);
-        let model = BertModel::load(vb, &config)
-            .map_err(|e| EmbeddingError::ModelLoading(format!("Failed to create BERT model: {}", e)))?;
-        
-        Ok(model)
-    }
 }
 
 #[cfg(test)]
@@ -146,14 +163,14 @@ mod tests {
         let text = "hello world this is a test";
         let embedding = generator.generate_embedding(text).unwrap();
 
-        assert_eq!(embedding.len(), 768); // BERT base dimension
+        assert_eq!(embedding.len(), 384); // all-MiniLM-L6-v2 dimension
         assert!(!embedding.iter().all(|&x| x == 0.0), "Embedding should not be all zeros");
     }
 
     #[test]
     fn test_embedding_dimension() {
         let generator = EmbeddingGenerator::new().unwrap();
-        assert_eq!(generator.dimension(), 768);
+        assert_eq!(generator.dimension(), 384);
     }
 
     #[test]
@@ -208,9 +225,9 @@ mod tests {
         let embeddings = generator.generate_embeddings_batch(&texts).unwrap();
         
         assert_eq!(embeddings.len(), 3);
-        assert_eq!(embeddings[0].len(), 768);
-        assert_eq!(embeddings[1].len(), 768);
-        assert_eq!(embeddings[2].len(), 768);
+        assert_eq!(embeddings[0].len(), 384);
+        assert_eq!(embeddings[1].len(), 384);
+        assert_eq!(embeddings[2].len(), 384);
     }
 
     #[test]
@@ -218,7 +235,7 @@ mod tests {
         let generator = EmbeddingGenerator::new().unwrap();
         let embedding = generator.generate_embedding("").unwrap();
         
-        assert_eq!(embedding.len(), 768);
+        assert_eq!(embedding.len(), 384);
         // Empty text should still produce a valid embedding (mostly zeros)
         assert!(embedding.iter().all(|&x| x.abs() < 1.0), "Empty text should produce valid embedding");
     }
