@@ -48,21 +48,41 @@ vectorlite = "0.1.0"
 Basic usage:
 
 ```rust
-use vectorlite::{HNSWIndex, Vector, VectorIndex};
+use vectorlite::{HNSWIndex, Vector, VectorIndex, EmbeddingGenerator};
 
-// Create an index for 768-dimensional vectors
-let mut index = HNSWIndex::new(768);
+// Create an embedding generator (uses all-MiniLM-L6-v2 by default)
+let embedder = EmbeddingGenerator::new()?;
 
-// Add vectors
+// Create an index for 384-dimensional vectors
+let mut index = HNSWIndex::new(embedder.dimension());
+
+// Generate embeddings and add to index
+let text = "Rust is a systems programming language";
+let embedding = embedder.generate_embedding(text)?;
 let vector = Vector {
     id: 1,
-    values: vec![0.1, 0.2, 0.3, /* ... 768 dimensions */],
+    values: embedding,
 };
 index.add(vector)?;
 
 // Search for similar vectors
-let query = vec![0.1, 0.2, 0.3, /* ... 768 dimensions */];
-let results = index.search(&query, 10); // Find 10 most similar vectors
+let query_text = "programming in Rust";
+let query_embedding = embedder.generate_embedding(query_text)?;
+let results = index.search(&query_embedding, 10);
+```
+
+## Loading Models
+
+VectorLite uses [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) by default:
+
+```rust
+let embedder = EmbeddingGenerator::new()?; 
+```
+
+For custom models, place the required files (`config.json`, `tokenizer.json`, `pytorch_model.bin`) in a directory and specify the path:
+
+```rust
+let embedder = EmbeddingGenerator::new_from_path("./models/my-custom-model")?;
 ```
 
 ## Building with Different Configurations

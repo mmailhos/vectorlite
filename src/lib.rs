@@ -1,7 +1,9 @@
 pub mod index;
+pub mod embeddings;
 
 pub use index::flat::FlatIndex;
 pub use index::hnsw::HNSWIndex;
+pub use embeddings::EmbeddingGenerator;
 
 use serde::{Serialize, Deserialize};
 
