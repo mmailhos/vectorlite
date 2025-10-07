@@ -5,6 +5,7 @@ use std::sync::Arc;
 use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_transformers::models::bert::{BertModel, Config};
 use tokenizers::Tokenizer;
+use crate::cosine_similarity;
 
 const DEFAULT_EMBEDDING_MODEL: &str = "all-MiniLM-L6-v2";
 
@@ -41,7 +42,6 @@ impl std::fmt::Debug for EmbeddingGenerator {
 }
 
 impl EmbeddingGenerator {
-    /// Create a new embedding generator using all-MiniLM-L6-v2 by default
     pub fn new() -> Result<Self> {
         Self::new_from_path(&format!("./models/{}", DEFAULT_EMBEDDING_MODEL))
     }
@@ -60,15 +60,12 @@ impl EmbeddingGenerator {
         })
     }
 
-    /// Configure threading for optimal CPU usage
     fn configure_threading() {
-        // Set Rayon thread count to match CPU cores
         let num_threads = num_cpus::get();
         unsafe { 
             std::env::set_var("RAYON_NUM_THREADS", num_threads.to_string());
         }
         
-        // Enable Candle's internal threading optimizations
         unsafe {
             std::env::set_var("CANDLE_NUM_THREADS", num_threads.to_string());
         }
@@ -257,23 +254,5 @@ mod tests {
         assert_eq!(embedding.len(), 384);
         // Empty text should still produce a valid embedding (mostly zeros)
         assert!(embedding.iter().all(|&x| x.abs() < 1.0), "Empty text should produce valid embedding");
-    }
-
-    // Note: Similar text similarity test removed for placeholder implementation
-    // In a real BERT implementation, similar texts would produce similar embeddings
-
-    // Helper function for cosine similarity
-    fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
-        assert_eq!(a.len(), b.len(), "Vectors must have the same length");
-        
-        let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
-        let norm_a: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let norm_b: f64 = b.iter().map(|x| x * x).sum::<f64>().sqrt();
-        
-        if norm_a == 0.0 || norm_b == 0.0 {
-            0.0
-        } else {
-            dot / (norm_a * norm_b)
-        }
     }
 }
