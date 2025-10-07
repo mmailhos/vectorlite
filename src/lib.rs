@@ -1,7 +1,6 @@
 pub mod index;
 
 pub use index::flat::FlatIndex;
-pub use index::hash::HashIndex;
 pub use index::hnsw::HNSWIndex;
 
 use serde::{Serialize, Deserialize};
@@ -87,11 +86,38 @@ impl VectorIndex for VectorIndexWrapper {
 pub trait VectorIndex {
     fn add(&mut self, vector: Vector) -> Result<(), String>;
     fn delete(&mut self, id: u64) -> Result<(), String>;
-    fn search(&self, query: &[f64], k: usize) -> Vec<SearchResult>;
+    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult>;
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool;
     fn get_vector(&self, id: u64) -> Option<&Vector>;
     fn dimension(&self) -> usize;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SimilarityMetric {
+    Cosine,
+    Euclidean,
+    Manhattan,
+    DotProduct,
+}
+
+impl SimilarityMetric {
+    pub fn calculate(&self, a: &[f64], b: &[f64]) -> f64 {
+        assert_eq!(a.len(), b.len(), "Vectors must have the same length");
+        
+        match self {
+            SimilarityMetric::Cosine => cosine_similarity(a, b),
+            SimilarityMetric::Euclidean => euclidean_similarity(a, b),
+            SimilarityMetric::Manhattan => manhattan_similarity(a, b),
+            SimilarityMetric::DotProduct => dot_product(a, b),
+        }
+    }
+}
+
+impl Default for SimilarityMetric {
+    fn default() -> Self {
+        SimilarityMetric::Cosine
+    }
 }
 
 pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
@@ -113,6 +139,43 @@ pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     } else {
         dot / (norm_a * norm_b)
     }
+}
+
+pub fn euclidean_similarity(a: &[f64], b: &[f64]) -> f64 {
+    assert_eq!(a.len(), b.len(), "Vectors must have the same length");
+    
+    let sum_sq = a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).powi(2))
+        .sum::<f64>();
+    
+    let distance = sum_sq.sqrt();
+    
+    // Convert distance to similarity: 1 / (1 + distance)
+    // This ensures similarity is in range [0, 1] with 1 being identical
+    1.0 / (1.0 + distance)
+}
+
+pub fn manhattan_similarity(a: &[f64], b: &[f64]) -> f64 {
+    assert_eq!(a.len(), b.len(), "Vectors must have the same length");
+    
+    let distance = a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| (x - y).abs())
+        .sum::<f64>();
+    
+    // Convert distance to similarity: 1 / (1 + distance)
+    // This ensures similarity is in range [0, 1] with 1 being identical
+    1.0 / (1.0 + distance)
+}
+
+pub fn dot_product(a: &[f64], b: &[f64]) -> f64 {
+    assert_eq!(a.len(), b.len(), "Vectors must have the same length");
+    
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| x * y)
+        .sum::<f64>()
 }
 
 #[cfg(test)]
@@ -141,6 +204,76 @@ mod tests {
     }
 
     #[test]
+    fn test_euclidean_similarity_identical_vectors() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0, 3.0];
+        assert!((euclidean_similarity(&a, &b) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_euclidean_similarity_different_vectors() {
+        let a = vec![0.0, 0.0];
+        let b = vec![3.0, 4.0];
+        let expected = 1.0 / (1.0 + 5.0); // 1 / (1 + sqrt(3^2 + 4^2))
+        assert!((euclidean_similarity(&a, &b) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_manhattan_similarity_identical_vectors() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0, 3.0];
+        assert!((manhattan_similarity(&a, &b) - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_manhattan_similarity_different_vectors() {
+        let a = vec![0.0, 0.0];
+        let b = vec![3.0, 4.0];
+        let expected = 1.0 / (1.0 + 7.0); // 1 / (1 + |0-3| + |0-4|)
+        assert!((manhattan_similarity(&a, &b) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_dot_product_identical_vectors() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0, 3.0];
+        let expected = 1.0 + 4.0 + 9.0; // 14.0
+        assert!((dot_product(&a, &b) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_dot_product_orthogonal_vectors() {
+        let a = vec![1.0, 0.0];
+        let b = vec![0.0, 1.0];
+        assert!((dot_product(&a, &b) - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_dot_product_opposite_vectors() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![-1.0, -2.0, -3.0];
+        let expected = -1.0 - 4.0 - 9.0; // -14.0
+        assert!((dot_product(&a, &b) - expected).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_similarity_metric_enum() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![1.0, 2.0, 3.0];
+        
+        // Test that all metrics work
+        assert!((SimilarityMetric::Cosine.calculate(&a, &b) - 1.0).abs() < 1e-10);
+        assert!((SimilarityMetric::Euclidean.calculate(&a, &b) - 1.0).abs() < 1e-10);
+        assert!((SimilarityMetric::Manhattan.calculate(&a, &b) - 1.0).abs() < 1e-10);
+        assert!((SimilarityMetric::DotProduct.calculate(&a, &b) - 14.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_similarity_metric_default() {
+        assert_eq!(SimilarityMetric::default(), SimilarityMetric::Cosine);
+    }
+
+    #[test]
     fn test_vector_store_creation() {
         let vectors = vec![
             Vector { id: 0, values: vec![1.0, 2.0, 3.0] },
@@ -160,7 +293,7 @@ mod tests {
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
-        let results = store.search(&query, 2);
+        let results = store.search(&query, 2, SimilarityMetric::Cosine);
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 0);

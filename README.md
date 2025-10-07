@@ -4,11 +4,11 @@ A lightweight vector database implementation in Rust for learning and experiment
 
 ## Overview
 
-VectorLite provides multiple indexing strategies for vector similarity search, including flat indexing, hash-based indexing, and [HNSW (Hierarchical Navigable Small World)](https://arxiv.org/abs/1603.09320) graphs. It's designed as an educational project to explore vector database concepts and Rust implementation patterns.
+VectorLite provides multiple indexing strategies for vector similarity search, including flat indexing and [HNSW (Hierarchical Navigable Small World)](https://arxiv.org/abs/1603.09320) graphs. It's designed as an educational project to explore vector database concepts and Rust implementation patterns.
 
 ## Features
 
-- **Multiple Index Types**: Choose the right indexing strategy for your use case
+- **Two Index Types**: Simple flat indexing and advanced HNSW indexing
 - **Configurable HNSW**: Three performance profiles for different memory/accuracy tradeoffs
 - **Cosine Similarity**: Built-in cosine similarity calculation
 - **Type Safety**: Leverages Rust's type system for safe vector operations
@@ -17,14 +17,9 @@ VectorLite provides multiple indexing strategies for vector similarity search, i
 ## Index Types
 
 ### FlatIndex
-- **Best for**: Search-heavy workloads, memory-constrained environments
+- **Best for**: Small to medium datasets, memory-constrained environments
 - **Performance**: O(n) search, O(1) memory access patterns
-- **Use case**: Static datasets where search is the primary operation
-
-### HashIndex  
-- **Best for**: Dynamic datasets with frequent ID-based operations
-- **Performance**: O(1) ID lookups, O(n) search
-- **Use case**: Applications requiring frequent vector updates or deletions
+- **Use case**: Datasets with < 100K vectors where simplicity is preferred
 
 ### HNSWIndex
 - **Best for**: Large-scale approximate nearest neighbor search
