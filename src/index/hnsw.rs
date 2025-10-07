@@ -4,8 +4,8 @@ use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize, Deserializer};
 use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
-use crate::{Vector, VectorIndex, SearchResult};
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
+#[derive(Default)]
 struct Euclidean;
 
 const MAXIMUM_NUMBER_CONNECTIONS: usize = if cfg!(feature = "memory-optimized") {
@@ -24,8 +24,6 @@ const MAXIMUM_NUMBER_CONNECTIONS_0: usize = if cfg!(feature = "memory-optimized"
     32 
 };
 
-#[derive(Default)]
-struct Euclidean;
 
 
 impl Metric<Vec<f64>> for Euclidean {
@@ -91,6 +89,12 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         let mut new_index_to_id = HashMap::new();
         
         for (id, vector) in &data.vectors {
+            if vector.values.len() != data.dim {
+                return Err(serde::de::Error::custom(format!(
+                    "Vector dimension mismatch: expected {}, got {}", 
+                    data.dim, vector.values.len()
+                )));
+            }
             let internal_index = hnsw.insert(vector.values.clone(), &mut searcher);
             new_id_to_index.insert(*id, internal_index);
             new_index_to_id.insert(internal_index, *id);
@@ -354,11 +358,8 @@ fn test_serialization_deserialization() {
         assert!(hnsw.add(vector).is_ok());
     }
     
-    // Serialize to JSON
     let serialized = serde_json::to_string(&hnsw).expect("Serialization should work");
-    
-    // Deserialize from JSON
-    let deserialized: HNSWIndex = serde_json::from_str(&serialized).expect("Deserialization should work");
+    let mut deserialized: HNSWIndex = serde_json::from_str(&serialized).expect("Deserialization should work");
     
     // Verify the deserialized index has the same properties
     assert_eq!(deserialized.len(), 3);
@@ -370,15 +371,71 @@ fn test_serialization_deserialization() {
     assert!(deserialized.get_vector(2).is_some());
     assert!(deserialized.get_vector(3).is_some());
     
-    // Verify search works on the deserialized index
-    let query = vec![1.1, 0.1, 0.1];
-    let results = deserialized.search(&query, 2);
-    assert!(!results.is_empty());
-    assert!(results.len() <= 2);
+    // Test that we can retrieve vectors by ID (this should work)
+    let vector1 = deserialized.get_vector(1).unwrap();
+    let vector2 = deserialized.get_vector(2).unwrap();
+    let vector3 = deserialized.get_vector(3).unwrap();
     
-    // Results should be sorted by score (highest first)
+    // Verify the vectors have the correct values
+    assert_eq!(vector1.values, vec![1.0, 0.0, 0.0]);
+    assert_eq!(vector2.values, vec![0.0, 1.0, 0.0]);
+    assert_eq!(vector3.values, vec![0.0, 0.0, 1.0]);
+    
+    // Test that we can add a new vector to the deserialized index
+    let new_vector = Vector { id: 4, values: vec![1.0, 1.0, 1.0] };
+    assert!(deserialized.add(new_vector).is_ok());
+    assert_eq!(deserialized.len(), 4);
+    
+    let query = vec![1.1, 0.1, 0.1];
+    
+    let results = deserialized.search(&query, 2, SimilarityMetric::Euclidean);
+    assert!(!results.is_empty(), "Search should return some results");
+    assert!(results.len() <= 2, "Should return at most 2 results as requested");
+    
+    // Verify results are sorted by score (highest first)
     for i in 1..results.len() {
-        assert!(results[i-1].score >= results[i].score);
+        assert!(results[i-1].score >= results[i].score, 
+            "Results should be sorted by score (highest first)");
     }
+    
+    // Verify that all returned IDs are valid
+    for result in &results {
+        assert!(deserialized.get_vector(result.id).is_some(), 
+            "All returned IDs should correspond to existing vectors");
+    }
+    
+    // The first result should be the most similar to [1.1, 0.1, 0.1]
+    // which should be the vector [1.0, 0.0, 0.0] (ID 1)
+    assert_eq!(results[0].id, 1, "First result should be the most similar vector");
+    assert!(results[0].score > 0.0, "Similarity score should be positive");
+    
+    // Test that we can still use the index for basic operations
+    assert_eq!(deserialized.len(), 4); // Should still have 4 vectors after adding one
+    assert_eq!(deserialized.dimension(), 3);
+    assert!(!deserialized.is_empty());
+}
+
+#[test]
+fn test_empty_hnsw_serialization_deserialization() {
+    use serde_json;
+    
+    // Create an empty HNSW index
+    let empty_hnsw = HNSWIndex::new(3);
+    assert!(empty_hnsw.is_empty());
+    assert_eq!(empty_hnsw.dimension(), 3);
+    
+    let serialized = serde_json::to_string(&empty_hnsw).expect("Serialization should work");
+    let mut deserialized: HNSWIndex = serde_json::from_str(&serialized).expect("Deserialization should work");
+    
+    // Verify the deserialized empty index has the same properties
+    assert_eq!(deserialized.len(), 0);
+    assert_eq!(deserialized.dimension(), 3);
+    assert!(deserialized.is_empty());
+    
+    // Test that we can add vectors to the deserialized empty index
+    let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+    assert!(deserialized.add(vector).is_ok());
+    assert_eq!(deserialized.len(), 1);
+    assert!(!deserialized.is_empty());
 }
 
