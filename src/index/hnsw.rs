@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize, Deserializer};
 use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
 use crate::{Vector, VectorIndex, SearchResult};
+use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
+struct Euclidean;
 
 const MAXIMUM_NUMBER_CONNECTIONS: usize = if cfg!(feature = "memory-optimized") {
     8
@@ -137,28 +139,36 @@ impl VectorIndex for HNSWIndex {
         
         Ok(())
     }
-    fn search(&self, query: &[f64], k: usize) -> Vec<SearchResult> {
+    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult> {
         let mut searcher = Searcher::new();
         let mut neighbors = vec![
             Neighbor {
                 index: !0,
                 distance: !0,
             };
-            k
+            k * 2
         ];
         
         let query_vec = query.to_vec();
         let results = self.hnsw.nearest(&query_vec, k * 2, &mut searcher, &mut neighbors);
         
-        results.iter()
+        // Get candidate vectors and recalculate with the requested similarity metric
+        let mut search_results: Vec<SearchResult> = results.iter()
             .filter(|n| n.index != !0) // Filter out invalid results
             .filter_map(|n| {
-                self.index_to_id.get(&n.index).map(|&custom_id| SearchResult {
-                    id: custom_id,
-                    score: 1.0 / (n.distance as f64 + 1.0), // Convert distance to similarity score
+                self.index_to_id.get(&n.index).and_then(|&custom_id| {
+                    self.vectors.get(&custom_id).map(|vector| {
+                        let score = similarity_metric.calculate(&vector.values, query);
+                        SearchResult { id: custom_id, score }
+                    })
                 })
             })
-            .collect()
+            .collect();
+        
+        // Sort by similarity score and take top k
+        search_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        search_results.truncate(k);
+        search_results
     }
     fn len(&self) -> usize {
         self.vectors.len()
@@ -234,7 +244,7 @@ fn test_search_basic() {
     
     // Search for vector similar to [1.0, 0.0, 0.0]
     let query = vec![1.1, 0.1, 0.1];
-    let results = hnsw.search(&query, 2);
+    let results = hnsw.search(&query, 2, SimilarityMetric::Euclidean);
     
     assert!(!results.is_empty());
     assert!(results.len() <= 2);
@@ -249,7 +259,7 @@ fn test_search_basic() {
 fn test_search_empty_index() {
     let hnsw = HNSWIndex::new(3);
     let query = vec![1.0, 2.0, 3.0];
-    let results = hnsw.search(&query, 5);
+    let results = hnsw.search(&query, 5, SimilarityMetric::Euclidean);
     
     assert!(results.is_empty());
 }
@@ -263,6 +273,7 @@ fn test_id_mapping() {
         Vector { id: 100, values: vec![1.0, 0.0, 0.0] },
         Vector { id: 200, values: vec![0.0, 1.0, 0.0] },
         Vector { id: 300, values: vec![0.0, 0.0, 1.0] },
+        Vector { id: 400, values: vec![1.0, 1.0, 0.0] },
     ];
     
     for vector in vectors {
@@ -273,11 +284,12 @@ fn test_id_mapping() {
     assert!(hnsw.get_vector(100).is_some());
     assert!(hnsw.get_vector(200).is_some());
     assert!(hnsw.get_vector(300).is_some());
+    assert!(hnsw.get_vector(400).is_some());
     assert!(hnsw.get_vector(999).is_none());
     
     // Test that search returns the correct custom IDs
     let query = vec![1.1, 0.1, 0.1];
-    let results = hnsw.search(&query, 2);
+    let results = hnsw.search(&query, 2, SimilarityMetric::Euclidean);
     
     assert!(!results.is_empty());
     // The first result should be the vector with ID 100 (most similar to [1.0, 0.0, 0.0])
