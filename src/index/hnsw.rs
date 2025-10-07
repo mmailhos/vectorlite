@@ -358,10 +358,7 @@ fn test_serialization_deserialization() {
         assert!(hnsw.add(vector).is_ok());
     }
     
-    // Serialize to JSON
     let serialized = serde_json::to_string(&hnsw).expect("Serialization should work");
-    
-    // Deserialize from JSON
     let mut deserialized: HNSWIndex = serde_json::from_str(&serialized).expect("Deserialization should work");
     
     // Verify the deserialized index has the same properties
@@ -389,43 +386,28 @@ fn test_serialization_deserialization() {
     assert!(deserialized.add(new_vector).is_ok());
     assert_eq!(deserialized.len(), 4);
     
-    // Test search functionality - the HNSW structure might not be perfectly reconstructed
-    // but we should be able to call search without panicking
     let query = vec![1.1, 0.1, 0.1];
     
-    // Try to search - if it works, great! If not, we'll catch the panic and continue
-    let search_result = std::panic::catch_unwind(|| {
-        deserialized.search(&query, 2, SimilarityMetric::Euclidean)
-    });
+    let results = deserialized.search(&query, 2, SimilarityMetric::Euclidean);
+    assert!(!results.is_empty(), "Search should return some results");
+    assert!(results.len() <= 2, "Should return at most 2 results as requested");
     
-    match search_result {
-        Ok(results) => {
-            // Assert on the search results
-            assert!(!results.is_empty(), "Search should return some results");
-            assert!(results.len() <= 2, "Should return at most 2 results as requested");
-            
-            // Verify results are sorted by score (highest first)
-            for i in 1..results.len() {
-                assert!(results[i-1].score >= results[i].score, 
-                    "Results should be sorted by score (highest first)");
-            }
-            
-            // Verify that all returned IDs are valid
-            for result in &results {
-                assert!(deserialized.get_vector(result.id).is_some(), 
-                    "All returned IDs should correspond to existing vectors");
-            }
-            
-            // The first result should be the most similar to [1.1, 0.1, 0.1]
-            // which should be the vector [1.0, 0.0, 0.0] (ID 1)
-            assert_eq!(results[0].id, 1, "First result should be the most similar vector");
-            assert!(results[0].score > 0.0, "Similarity score should be positive");
-        }
-        Err(_) => {
-            // If search panics, that's unexpected now that we know it works
-            panic!("Search should not panic - HNSW deserialization is working correctly");
-        }
+    // Verify results are sorted by score (highest first)
+    for i in 1..results.len() {
+        assert!(results[i-1].score >= results[i].score, 
+            "Results should be sorted by score (highest first)");
     }
+    
+    // Verify that all returned IDs are valid
+    for result in &results {
+        assert!(deserialized.get_vector(result.id).is_some(), 
+            "All returned IDs should correspond to existing vectors");
+    }
+    
+    // The first result should be the most similar to [1.1, 0.1, 0.1]
+    // which should be the vector [1.0, 0.0, 0.0] (ID 1)
+    assert_eq!(results[0].id, 1, "First result should be the most similar vector");
+    assert!(results[0].score > 0.0, "Similarity score should be positive");
     
     // Test that we can still use the index for basic operations
     assert_eq!(deserialized.len(), 4); // Should still have 4 vectors after adding one
@@ -442,10 +424,7 @@ fn test_empty_hnsw_serialization_deserialization() {
     assert!(empty_hnsw.is_empty());
     assert_eq!(empty_hnsw.dimension(), 3);
     
-    // Serialize to JSON
     let serialized = serde_json::to_string(&empty_hnsw).expect("Serialization should work");
-    
-    // Deserialize from JSON
     let mut deserialized: HNSWIndex = serde_json::from_str(&serialized).expect("Deserialization should work");
     
     // Verify the deserialized empty index has the same properties
