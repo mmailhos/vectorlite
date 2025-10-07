@@ -1,5 +1,6 @@
 use thiserror::Error;
 use std::path::Path;
+use std::sync::Arc;
 
 use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_transformers::models::bert::{BertModel, Config};
@@ -22,8 +23,8 @@ pub enum EmbeddingError {
 pub type Result<T> = std::result::Result<T, EmbeddingError>;
 
 pub struct EmbeddingGenerator {
-    model: BertModel,
-    tokenizer: Tokenizer,
+    model: Arc<BertModel>,
+    tokenizer: Arc<Tokenizer>,
     device: Device,
     dimension: usize,
 }
@@ -46,15 +47,31 @@ impl EmbeddingGenerator {
     }
 
     pub fn new_from_path(model_path: &str) -> Result<Self> {
+        Self::configure_threading();
+        
         let device = Device::Cpu;
         let (model, tokenizer, dimension) = Self::load_model_from_path(model_path, &device)?;
         
         Ok(Self {
-            model,
-            tokenizer,
+            model: Arc::new(model),
+            tokenizer: Arc::new(tokenizer),
             device,
             dimension,
         })
+    }
+
+    /// Configure threading for optimal CPU usage
+    fn configure_threading() {
+        // Set Rayon thread count to match CPU cores
+        let num_threads = num_cpus::get();
+        unsafe { 
+            std::env::set_var("RAYON_NUM_THREADS", num_threads.to_string());
+        }
+        
+        // Enable Candle's internal threading optimizations
+        unsafe {
+            std::env::set_var("CANDLE_NUM_THREADS", num_threads.to_string());
+        }
     }
 
     fn load_model_from_path(model_path: &str, device: &Device) -> Result<(BertModel, Tokenizer, usize)> {
@@ -146,7 +163,9 @@ impl EmbeddingGenerator {
     }
 
     pub fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<Vec<f64>>> {
-        texts.iter()
+        use rayon::prelude::*;
+        
+        texts.par_iter()
             .map(|text| self.generate_embedding(text))
             .collect()
     }
