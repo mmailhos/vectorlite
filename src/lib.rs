@@ -21,70 +21,6 @@ pub struct SearchResult {
     pub score: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub enum VectorIndexWrapper {
-    Flat(FlatIndex),
-    Hash(HashIndex),
-    HNSW(HNSWIndex),
-}
-
-impl VectorIndex for VectorIndexWrapper {
-    fn add(&mut self, vector: Vector) -> Result<(), String> {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.add(vector),
-            VectorIndexWrapper::Hash(index) => index.add(vector),
-            VectorIndexWrapper::HNSW(index) => index.add(vector),  
-        }
-    }
-
-    fn delete(&mut self, id: u64) -> Result<(), String> {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.delete(id),
-            VectorIndexWrapper::Hash(index) => index.delete(id),
-            VectorIndexWrapper::HNSW(index) => index.delete(id),
-        }
-    }
-
-    fn search(&self, query: &[f64], k: usize) -> Vec<SearchResult> {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.search(query, k),
-            VectorIndexWrapper::Hash(index) => index.search(query, k),
-            VectorIndexWrapper::HNSW(index) => index.search(query, k),
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.len(),
-            VectorIndexWrapper::Hash(index) => index.len(),
-            VectorIndexWrapper::HNSW(index) => index.len(),
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.is_empty(),
-            VectorIndexWrapper::Hash(index) => index.is_empty(),
-            VectorIndexWrapper::HNSW(index) => index.is_empty(),
-        }
-    }
-
-    fn get_vector(&self, id: u64) -> Option<&Vector> {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.get_vector(id),
-            VectorIndexWrapper::Hash(index) => index.get_vector(id),
-            VectorIndexWrapper::HNSW(index) => index.get_vector(id),
-        }
-    }
-
-    fn dimension(&self) -> usize {
-        match self {
-            VectorIndexWrapper::Flat(index) => index.dimension(),
-            VectorIndexWrapper::Hash(index) => index.dimension(),
-            VectorIndexWrapper::HNSW(index) => index.dimension(),
-        }
-    }
-}
 pub trait VectorIndex {
     fn add(&mut self, vector: Vector) -> Result<(), String>;
     fn delete(&mut self, id: u64) -> Result<(), String>;
@@ -93,6 +29,63 @@ pub trait VectorIndex {
     fn is_empty(&self) -> bool;
     fn get_vector(&self, id: u64) -> Option<&Vector>;
     fn dimension(&self) -> usize;
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum VectorIndexWrapper {
+    Flat(FlatIndex),
+    HNSW(HNSWIndex),
+}
+
+impl VectorIndex for VectorIndexWrapper {
+    fn add(&mut self, vector: Vector) -> Result<(), String> {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.add(vector),
+            VectorIndexWrapper::HNSW(index) => index.add(vector),  
+        }
+    }
+
+    fn delete(&mut self, id: u64) -> Result<(), String> {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.delete(id),
+            VectorIndexWrapper::HNSW(index) => index.delete(id),
+        }
+    }
+
+    fn search(&self, query: &[f64], k: usize, s: SimilarityMetric) -> Vec<SearchResult> {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.search(query, k, s),
+            VectorIndexWrapper::HNSW(index) => index.search(query, k, s),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.len(),
+            VectorIndexWrapper::HNSW(index) => index.len(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.is_empty(),
+            VectorIndexWrapper::HNSW(index) => index.is_empty(),
+        }
+    }
+
+    fn get_vector(&self, id: u64) -> Option<&Vector> {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.get_vector(id),
+            VectorIndexWrapper::HNSW(index) => index.get_vector(id),
+        }
+    }
+
+    fn dimension(&self) -> usize {
+        match self {
+            VectorIndexWrapper::Flat(index) => index.dimension(),
+            VectorIndexWrapper::HNSW(index) => index.dimension(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -327,7 +320,7 @@ mod tests {
         
         // Test search through the wrapper
         let query = vec![1.1, 0.1, 0.1];
-        let results = deserialized.search(&query, 1);
+        let results = deserialized.search(&query, 1, SimilarityMetric::Cosine);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 1);
     }
