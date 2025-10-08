@@ -95,6 +95,17 @@ pub struct Collection {
     next_id: u64,
 }
 
+impl std::fmt::Debug for Collection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Collection")
+            .field("name", &self.name)
+            .field("index", &self.index)
+            .field("next_id", &self.next_id)
+            .field("embedding_function", &"<EmbeddingFunction>")
+            .finish()
+    }
+}
+
 impl Collection {
     pub fn add_text(&mut self, text: &str) -> Result<u64, String> {
         let id = self.next_id;
@@ -139,5 +150,257 @@ impl Collection {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Mock embedding function for testing
+    struct MockEmbeddingFunction {
+        dimension: usize,
+    }
+
+    impl MockEmbeddingFunction {
+        fn new(dimension: usize) -> Self {
+            Self { dimension }
+        }
+    }
+
+    impl EmbeddingFunction for MockEmbeddingFunction {
+        fn generate_embedding(&self, _text: &str) -> crate::embeddings::Result<Vec<f64>> {
+            // Return a simple mock embedding
+            Ok(vec![1.0, 2.0, 3.0])
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+    }
+
+    #[test]
+    fn test_client_creation() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        assert!(client.collections.is_empty());
+        assert!(client.list_collections().is_empty());
+    }
+
+    #[test]
+    fn test_create_collection() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create collection
+        let result = client.create_collection("test_collection", IndexType::Flat);
+        assert!(result.is_ok());
+        
+        // Check collection exists
+        assert!(client.has_collection("test_collection"));
+        assert_eq!(client.list_collections(), vec!["test_collection"]);
+    }
+
+    #[test]
+    fn test_create_duplicate_collection() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create first collection
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        
+        // Try to create duplicate
+        let result = client.create_collection("test_collection", IndexType::Flat);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("already exists"));
+    }
+
+    #[test]
+    fn test_get_collection() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create collection
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        
+        // Get collection
+        let collection = client.get_collection("test_collection");
+        assert!(collection.is_some());
+        assert_eq!(collection.unwrap().name(), "test_collection");
+        
+        // Get non-existent collection
+        let collection = client.get_collection("non_existent");
+        assert!(collection.is_none());
+    }
+
+    #[test]
+    fn test_delete_collection() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create collection
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        assert!(client.has_collection("test_collection"));
+        
+        // Delete collection
+        let result = client.delete_collection("test_collection");
+        assert!(result.is_ok());
+        assert!(!client.has_collection("test_collection"));
+        
+        // Try to delete non-existent collection
+        let result = client.delete_collection("non_existent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_add_text_to_collection() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create collection
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        
+        // Add text
+        let result = client.add_text_to_collection("test_collection", "Hello world");
+        assert!(result.is_ok());
+        let id = result.unwrap();
+        assert_eq!(id, 1);
+        
+        // Add another text
+        let result = client.add_text_to_collection("test_collection", "Another text");
+        assert!(result.is_ok());
+        let id = result.unwrap();
+        assert_eq!(id, 2);
+        
+        // Check collection count
+        let collection = client.get_collection("test_collection").unwrap();
+        assert_eq!(collection.count(), 2);
+    }
+
+    #[test]
+    fn test_add_text_to_nonexistent_collection() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Try to add to non-existent collection
+        let result = client.add_text_to_collection("non_existent", "Hello world");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_collection_operations() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create collection
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        
+        // Get mutable reference
+        let collection = client.get_collection_mut("test_collection").unwrap();
+        
+        // Test initial state
+        assert!(collection.is_empty());
+        assert_eq!(collection.count(), 0);
+        assert_eq!(collection.name(), "test_collection");
+        
+        // Add text
+        let id = collection.add_text("Hello world").unwrap();
+        assert_eq!(id, 1);
+        assert!(!collection.is_empty());
+        assert_eq!(collection.count(), 1);
+        
+        // Add another text
+        let id = collection.add_text("Another text").unwrap();
+        assert_eq!(id, 2);
+        assert_eq!(collection.count(), 2);
+        
+        // Test search
+        let results = collection.search_text("Hello", 1, SimilarityMetric::Cosine).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, 1);
+        
+        // Test get vector
+        let vector = collection.get_vector(1);
+        assert!(vector.is_some());
+        assert_eq!(vector.unwrap().id, 1);
+        
+        // Test delete
+        collection.delete(1).unwrap();
+        assert_eq!(collection.count(), 1);
+        
+        // Verify vector is gone
+        let vector = collection.get_vector(1);
+        assert!(vector.is_none());
+    }
+
+    #[test]
+    fn test_collection_with_hnsw_index() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create HNSW collection
+        client.create_collection("hnsw_collection", IndexType::HNSW).unwrap();
+        
+        let collection = client.get_collection_mut("hnsw_collection").unwrap();
+        
+        // Add some text
+        let id1 = collection.add_text("First document").unwrap();
+        let id2 = collection.add_text("Second document").unwrap();
+        
+        assert_eq!(id1, 1);
+        assert_eq!(id2, 2);
+        assert_eq!(collection.count(), 2);
+        
+        // Test search
+        let results = collection.search_text("First", 1, SimilarityMetric::Cosine).unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_add_vector_directly() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        let collection = client.get_collection_mut("test_collection").unwrap();
+        
+        // Add vector directly
+        let vector = Vector {
+            id: 42,
+            values: vec![1.0, 2.0, 3.0],
+        };
+        
+        collection.add_vector(vector).unwrap();
+        assert_eq!(collection.count(), 1);
+        
+        // Verify vector exists
+        let retrieved = collection.get_vector(42);
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().id, 42);
+    }
+
+    #[test]
+    fn test_search_vector_directly() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        let collection = client.get_collection_mut("test_collection").unwrap();
+        
+        // Add some vectors
+        collection.add_text("Hello world").unwrap();
+        collection.add_text("Another text").unwrap();
+        
+        // Search with vector directly
+        let query_vector = vec![1.0, 2.0, 3.0];
+        let results = collection.search_vector(&query_vector, 2, SimilarityMetric::Cosine);
+        
+        assert_eq!(results.len(), 2);
+        // Results should be sorted by score (highest first)
+        for i in 1..results.len() {
+            assert!(results[i-1].score >= results[i].score);
+        }
     }
 }
