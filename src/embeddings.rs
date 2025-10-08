@@ -5,7 +5,6 @@ use std::sync::Arc;
 use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_transformers::models::bert::{BertModel, Config};
 use tokenizers::Tokenizer;
-use crate::cosine_similarity;
 
 const DEFAULT_EMBEDDING_MODEL: &str = "all-MiniLM-L6-v2";
 
@@ -38,6 +37,57 @@ impl std::fmt::Debug for EmbeddingGenerator {
             .field("model", &"<BertModel>")
             .field("tokenizer", &"<Tokenizer>")
             .finish()
+    }
+}
+
+pub trait EmbeddingFunction: Send + Sync {
+    fn generate_embedding(&self, text: &str) -> Result<Vec<f64>>;
+    fn dimension(&self) -> usize;
+}
+
+impl EmbeddingFunction for EmbeddingGenerator {
+    fn generate_embedding(&self, text: &str) -> Result<Vec<f64>> {
+        // Tokenize input
+        let encoding = self.tokenizer.encode(text, true)
+            .map_err(|e| EmbeddingError::Tokenization(format!("Tokenization failed: {}", e)))?;
+        let token_ids = encoding.get_ids();
+        
+        // Convert to tensor
+        let input_ids = Tensor::new(token_ids, &self.device)
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to create input tensor: {}", e)))?;
+        let input_ids = input_ids.unsqueeze(0)
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to add batch dimension: {}", e)))?;
+        
+        // Create token type ids (all zeros for single sequence)
+        let token_type_ids = Tensor::zeros((1, input_ids.dim(1).unwrap()), input_ids.dtype(), &self.device)
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to create token type ids: {}", e)))?;
+        
+        // Run through BERT model
+        let outputs = self.model.forward(&input_ids, &token_type_ids, None)
+            .map_err(|e| EmbeddingError::Inference(format!("Model inference failed: {}", e)))?;
+        
+        // Extract [CLS] token embedding (first token)
+        let cls_embedding = outputs.i((0, 0))
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to extract CLS token: {}", e)))?;
+        
+        // Convert to Vec<f64> (convert from F32 to F64)
+        let embedding_f32: Vec<f32> = cls_embedding.to_vec1()
+            .map_err(|e| EmbeddingError::Inference(format!("Failed to convert to Vec: {}", e)))?;
+        let embedding: Vec<f64> = embedding_f32.into_iter().map(|x| x as f64).collect();
+        
+        // L2 normalize
+        let norm: f64 = embedding.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let normalized: Vec<f64> = if norm > 0.0 {
+            embedding.iter().map(|x| x / norm).collect()
+        } else {
+            embedding
+        };
+        
+        Ok(normalized)
+    }
+
+    fn dimension(&self) -> usize {
+        self.dimension
     }
 }
 
@@ -113,50 +163,12 @@ impl EmbeddingGenerator {
         Ok((model, tokenizer, dimension))
     }
 
-
-    pub fn generate_embedding(&self, text: &str) -> Result<Vec<f64>> {
-        // Tokenize input
-        let encoding = self.tokenizer.encode(text, true)
-            .map_err(|e| EmbeddingError::Tokenization(format!("Tokenization failed: {}", e)))?;
-        let token_ids = encoding.get_ids();
-        
-        // Convert to tensor
-        let input_ids = Tensor::new(token_ids, &self.device)
-            .map_err(|e| EmbeddingError::Inference(format!("Failed to create input tensor: {}", e)))?;
-        let input_ids = input_ids.unsqueeze(0)
-            .map_err(|e| EmbeddingError::Inference(format!("Failed to add batch dimension: {}", e)))?;
-        
-        // Create token type ids (all zeros for single sequence)
-        let token_type_ids = Tensor::zeros((1, input_ids.dim(1).unwrap()), input_ids.dtype(), &self.device)
-            .map_err(|e| EmbeddingError::Inference(format!("Failed to create token type ids: {}", e)))?;
-        
-        // Run through BERT model
-        let outputs = self.model.forward(&input_ids, &token_type_ids, None)
-            .map_err(|e| EmbeddingError::Inference(format!("Model inference failed: {}", e)))?;
-        
-        // Extract [CLS] token embedding (first token)
-        let cls_embedding = outputs.i((0, 0))
-            .map_err(|e| EmbeddingError::Inference(format!("Failed to extract CLS token: {}", e)))?;
-        
-        // Convert to Vec<f64> (convert from F32 to F64)
-        let embedding_f32: Vec<f32> = cls_embedding.to_vec1()
-            .map_err(|e| EmbeddingError::Inference(format!("Failed to convert to Vec: {}", e)))?;
-        let embedding: Vec<f64> = embedding_f32.into_iter().map(|x| x as f64).collect();
-        
-        // L2 normalize
-        let norm: f64 = embedding.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let normalized: Vec<f64> = if norm > 0.0 {
-            embedding.iter().map(|x| x / norm).collect()
-        } else {
-            embedding
-        };
-        
-        Ok(normalized)
-    }
-
-
     pub fn dimension(&self) -> usize {
         self.dimension
+    }
+
+    pub fn generate_embedding(&self, text: &str) -> Result<Vec<f64>> {
+        <Self as EmbeddingFunction>::generate_embedding(self, text)
     }
 
     pub fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<Vec<f64>>> {
@@ -225,7 +237,7 @@ mod tests {
         let embedding2 = generator.generate_embedding(text2).unwrap();
         
         // Different texts should produce different embeddings
-        let cosine_sim = cosine_similarity(&embedding1, &embedding2);
+        let cosine_sim = crate::SimilarityMetric::Cosine.calculate(&embedding1, &embedding2);
         assert!(cosine_sim < 0.99, "Different texts should produce different embeddings");
     }
 
