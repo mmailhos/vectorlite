@@ -1,101 +1,54 @@
 # VectorLite
 
-A lightweight vector database implementation in Rust for learning and experimentation.
-
-## Overview
-
-VectorLite provides multiple indexing strategies for vector similarity search, including flat indexing and [HNSW (Hierarchical Navigable Small World)](https://arxiv.org/abs/1603.09320) graphs. It's designed as an educational project to explore vector database concepts and Rust implementation patterns.
+A lightweight vector database with built-in embeddings generation, search and retrieval capabilities for AI agents
 
 ## Features
 
-- **Two Index Types**: Simple flat indexing and advanced HNSW indexing
-- **Configurable HNSW**: Three performance profiles for different memory/accuracy tradeoffs
-- **Cosine Similarity**: Built-in cosine similarity calculation
-- **Type Safety**: Leverages Rust's type system for safe vector operations
-- **Comprehensive Testing**: Full test coverage with integration tests
-
-## Index Types
-
-### FlatIndex
-- **Best for**: Small to medium datasets, memory-constrained environments
-- **Performance**: O(n) search, O(1) memory access patterns
-- **Use case**: Datasets with < 100K vectors where simplicity is preferred
-
-### HNSWIndex
-- **Best for**: Large-scale approximate nearest neighbor search
-- **Performance**: O(log n) search complexity
-- **Use case**: Production vector search with configurable accuracy/memory tradeoffs
-
-## HNSW Configuration
-
-VectorLite supports three HNSW performance profiles via feature flags:
-
-| Feature | Max Connections | Layer 0 Connections | Use Case |
-|---------|----------------|---------------------|----------|
-| `fast` (default) | 16 | 32 | Balanced performance and memory |
-| `memory-optimized` | 8 | 16 | Lower memory usage, slightly slower |
-| `high-accuracy` | 32 | 64 | Higher accuracy, more memory usage |
+- **Two Index Types**: Flat and HNSW indexing
+- **ChromaDB-like API**: Simple client interface with collections
+- **Multiple Similarity Metrics**: Cosine, Euclidean, Manhattan, Dot Product
+- **Built-in Embeddings**: Uses all-MiniLM-L6-v2 model
+- **Memory-only**: No persistence, all data in RAM
 
 ## Quick Start
 
-Add to your `Cargo.toml`:
-
-```toml
-[dependencies]
-vectorlite = "0.1.0"
-```
-
-Basic usage:
-
 ```rust
-use vectorlite::{HNSWIndex, Vector, VectorIndex, EmbeddingGenerator};
+use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 
-// Create an embedding generator (uses all-MiniLM-L6-v2 by default)
-let embedder = EmbeddingGenerator::new()?;
+// Create client with embedding function
+let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 
-// Create an index for 384-dimensional vectors
-let mut index = HNSWIndex::new(embedder.dimension());
+// Create collection
+client.create_collection("documents", IndexType::Flat)?;
 
-// Generate embeddings and add to index
-let text = "Rust is a systems programming language";
-let embedding = embedder.generate_embedding(text)?;
-let vector = Vector {
-    id: 1,
-    values: embedding,
-};
-index.add(vector)?;
+// Add text (auto-generates embedding and ID)
+let id = client.add_text_to_collection("documents", "Hello world")?;
 
-// Search for similar vectors
-let query_text = "programming in Rust";
-let query_embedding = embedder.generate_embedding(query_text)?;
-let results = index.search(&query_embedding, 10);
+// Search
+let collection = client.get_collection("documents").unwrap();
+let results = collection.search_text("hello", 5, SimilarityMetric::Cosine)?;
 ```
 
-## Loading Models
+## Index Types
 
-VectorLite uses [sentence-transformers/all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) by default:
+- **FlatIndex**: O(n) search, good for small datasets
+- **HNSWIndex**: O(log n) search, good for large datasets
 
-```rust
-let embedder = EmbeddingGenerator::new()?; 
-```
+## Similarity Metrics
 
-For custom models, place the required files (`config.json`, `tokenizer.json`, `pytorch_model.bin`) in a directory and specify the path:
+- `SimilarityMetric::Cosine` - Cosine similarity (default)
+- `SimilarityMetric::Euclidean` - Euclidean distance
+- `SimilarityMetric::Manhattan` - Manhattan distance  
+- `SimilarityMetric::DotProduct` - Dot product
 
-```rust
-let embedder = EmbeddingGenerator::new_from_path("./models/my-custom-model")?;
-```
+## HNSW Configuration
 
-## Building with Different Configurations
+Build with different performance profiles:
 
 ```bash
-# Default (fast) configuration
-cargo build
-
-# Memory-optimized configuration
-cargo build --features memory-optimized
-
-# High-accuracy configuration  
-cargo build --features high-accuracy
+cargo build                           # Default (balanced)
+cargo build --features memory-optimized  # Lower memory
+cargo build --features high-accuracy     # Higher accuracy
 ```
 
 ## License
