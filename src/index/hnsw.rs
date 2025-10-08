@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::{Formatter, Debug};
+use std::rc::Rc;
 use rand::rngs::StdRng;
 use serde::{Deserialize, Serialize, Deserializer};
 use space::{Metric, Neighbor};
@@ -26,10 +27,10 @@ const MAXIMUM_NUMBER_CONNECTIONS_0: usize = if cfg!(feature = "memory-optimized"
 
 
 
-impl Metric<Vec<f64>> for Euclidean {
+impl Metric<Rc<Vec<f64>>> for Euclidean {
     type Unit = u64;
     
-    fn distance(&self, a: &Vec<f64>, b: &Vec<f64>) -> Self::Unit {
+    fn distance(&self, a: &Rc<Vec<f64>>, b: &Rc<Vec<f64>>) -> Self::Unit {
         let sum_sq = a.iter()
             .zip(b.iter())
             .map(|(x, y)| (x - y).powi(2))
@@ -41,7 +42,7 @@ impl Metric<Vec<f64>> for Euclidean {
 #[derive(Serialize)]
 pub struct HNSWIndex {
     #[serde(skip)]
-    hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
+    hnsw: Hnsw<Euclidean, Rc<Vec<f64>>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
     #[serde(skip)]
     searcher: Searcher<u64>,
 
@@ -56,7 +57,7 @@ pub struct HNSWIndex {
 
 impl HNSWIndex {
     pub fn new(dim: usize) -> Self {
-        let hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0> = Hnsw::new(Euclidean);
+        let hnsw: Hnsw<Euclidean, Rc<Vec<f64>>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0> = Hnsw::new(Euclidean);
         let searcher = Searcher::new();
         Self { 
             hnsw, 
@@ -82,22 +83,33 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         
         let data = Temp::deserialize(deserializer)?;
         
-        let mut hnsw = Hnsw::new(Euclidean);
+        let mut hnsw: Hnsw<Euclidean, Rc<Vec<f64>>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0> = Hnsw::new(Euclidean);
         let mut searcher = Searcher::new();
         
         let mut new_id_to_index = HashMap::new();
         let mut new_index_to_id = HashMap::new();
         
-        for (id, vector) in &data.vectors {
+        let mut vectors = HashMap::new();
+        
+        for (id, vector) in data.vectors {
             if vector.values.len() != data.dim {
                 return Err(serde::de::Error::custom(format!(
                     "Vector dimension mismatch: expected {}, got {}", 
                     data.dim, vector.values.len()
                 )));
             }
-            let internal_index = hnsw.insert(vector.values.clone(), &mut searcher);
-            new_id_to_index.insert(*id, internal_index);
-            new_index_to_id.insert(internal_index, *id);
+            // Share the vector values between HNSW and the vectors HashMap using Rc
+            let shared_values = Rc::new(vector.values);
+            let internal_index = hnsw.insert(shared_values.clone(), &mut searcher);
+            new_id_to_index.insert(id, internal_index);
+            new_index_to_id.insert(internal_index, id);
+            
+            // Reconstruct the vector with the shared values
+            let vector_with_shared_values = Vector {
+                id: vector.id,
+                values: Rc::try_unwrap(shared_values).unwrap_or_else(|rc| (*rc).clone()),
+            };
+            vectors.insert(id, vector_with_shared_values);
         }
         
         Ok(HNSWIndex {
@@ -106,7 +118,7 @@ impl<'de> Deserialize<'de> for HNSWIndex {
             dim: data.dim,
             id_to_index: new_id_to_index,
             index_to_id: new_index_to_id,
-            vectors: data.vectors,
+            vectors,
         })
     }
 }
@@ -121,11 +133,19 @@ impl VectorIndex for HNSWIndex {
             return Err(format!("Vector ID {} already exists", vector.id));
         }
         
-        let internal_index = self.hnsw.insert(vector.values.clone(), &mut self.searcher);
+        // Share the vector values between HNSW and the vectors HashMap using Rc
+        let shared_values = Rc::new(vector.values);
+        let internal_index = self.hnsw.insert(shared_values.clone(), &mut self.searcher);
         
         self.id_to_index.insert(vector.id, internal_index);
         self.index_to_id.insert(internal_index, vector.id);
-        self.vectors.insert(vector.id, vector);
+        
+        // Reconstruct the vector with the shared values
+        let vector_with_shared_values = Vector {
+            id: vector.id,
+            values: Rc::try_unwrap(shared_values).unwrap_or_else(|rc| (*rc).clone()),
+        };
+        self.vectors.insert(vector.id, vector_with_shared_values);
         
         Ok(())
     }
@@ -153,7 +173,7 @@ impl VectorIndex for HNSWIndex {
             k * 2
         ];
         
-        let query_vec = query.to_vec();
+        let query_vec = Rc::new(query.to_vec());
         let results = self.hnsw.nearest(&query_vec, k * 2, &mut searcher, &mut neighbors);
         
         // Get candidate vectors and recalculate with the requested similarity metric
