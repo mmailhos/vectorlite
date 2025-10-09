@@ -1,11 +1,13 @@
 pub mod index;
 pub mod embeddings;
 pub mod client;
+pub mod server;
 
 pub use index::flat::FlatIndex;
 pub use index::hnsw::HNSWIndex;
 pub use embeddings::{EmbeddingGenerator, EmbeddingFunction};
-pub use client::{VectorLiteClient, Collection, Settings, IndexType};
+pub use client::{VectorLiteClient, InnerCollection, Settings, IndexType};
+pub use server::{create_app, start_server};
 
 use serde::{Serialize, Deserialize};
 
