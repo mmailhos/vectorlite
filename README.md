@@ -13,7 +13,7 @@ VectorLite is designed for **single-instance, low-latency vector operations** in
 
 ### Key Features
 - **In-memory storage** for zero-latency access patterns
-- **Native Rust ML models** using Candle framework with pluggable architecture
+- **Native Rust ML models** using Candle framework with pluggable architecture. Bring your own embedding model (default to all-MiniLM-L6-v2)
 - **Thread-safe concurrency** with RwLock per collection and atomic ID generation
 - **HNSW indexing** for approximate nearest neighbor search with configurable accuracy
 
