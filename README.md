@@ -6,39 +6,22 @@ A high-performance, in-memory vector database optimized for AI agent workloads w
 
 VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for session-based AI applications where data locality and response time are critical.
 
-## Core Design Decisions
+## Design Decisions
 
 ### In-Memory Architecture
-**Trade-off**: Memory consumption vs. persistence guarantees
-- **Chosen**: Pure in-memory storage with no persistence layer
-- **Rationale**: AI agents typically operate on session-scoped data with predictable memory bounds
-- **Implication**: Data loss on restart, but enables zero-latency access patterns
+- **Pure in-memory storage** for zero-latency access patterns
+- **Session-scoped data** optimized for AI agent workflows
+- **Predictable memory bounds** with no persistence overhead
 
 ### Thread-Safe Concurrency Model
-**Trade-off**: Lock contention vs. data consistency
-- **Chosen**: Read-Write Lock (RwLock) per collection with atomic ID generation
-- **Rationale**: Read-heavy workloads (searches) can proceed concurrently while maintaining write consistency
-- **Implication**: Multiple concurrent searches, exclusive writes, no distributed coordination overhead
+- **RwLock per collection** enabling concurrent searches
+- **Atomic ID generation** for lock-free operations
+- **No distributed coordination** overhead for single-instance performance
 
-### Embedding Function Separation
-**Trade-off**: Coupling vs. flexibility
-- **Chosen**: Embedding generation outside critical sections
-- **Rationale**: Minimizes lock hold time and enables different embedding strategies per request
-- **Implication**: Pre-computed embeddings reduce contention but require careful resource management
-
-## Performance Characteristics
-
-### Latency Profile
-- **Search Operations**: Sub-millisecond for datasets < 100K vectors
-- **Insert Operations**: 10-50ms (dominated by embedding generation)
-- **Concurrent Searches**: Linear scaling with CPU cores
-- **Memory Overhead**: ~2-3x vector size due to HNSW graph structure
-
-### Scalability Boundaries
-- **Recommended Dataset Size**: < 1M vectors per collection
-- **Memory Requirements**: ~2-4GB for 100K vectors (768-dimensional)
-- **Concurrent Connections**: Limited by available CPU cores
-- **Throughput**: 10K+ searches/second on modern hardware
+### Built-in ML Integration
+- **Native Rust ML models** using Candle framework
+- **Interchangeable embedding models** with pluggable architecture
+- **Pre-computed embeddings** to minimize lock contention
 
 ## HTTP API
 
@@ -86,8 +69,15 @@ DELETE /collections/{name}/vectors/{id}
 - **Index Operations**: RwLock provides sequential consistency
 - **Embedding Generation**: Outside critical sections to minimize contention
 
-## Similarity Metrics
+## ML Model Integration
 
+### Built-in Embedding Models
+- **all-MiniLM-L6-v2**: Default 384-dimensional model for general-purpose text
+- **Candle Framework**: Native Rust ML inference with CPU/GPU acceleration
+- **Pluggable Architecture**: Easy integration of custom embedding models
+- **Memory Efficient**: Models loaded once and shared across requests
+
+### Similarity Metrics
 - **Cosine**: Default for normalized embeddings, scale-invariant
 - **Euclidean**: Geometric distance, sensitive to vector magnitude
 - **Manhattan**: L1 norm, robust to outliers
@@ -120,16 +110,16 @@ cargo build --features high-accuracy
 - **Multi-tenant SaaS**: No tenant isolation or resource limits
 - **Large-scale Analytics**: Not optimized for batch processing
 
-## Trade-offs Summary
+## Key Advantages
 
-| Aspect | Chosen Approach | Trade-off |
-|--------|----------------|-----------|
-| **Storage** | In-memory only | Speed vs. persistence |
-| **Concurrency** | RwLock per collection | Simplicity vs. fine-grained locking |
-| **Embeddings** | External generation | Flexibility vs. coupling |
-| **Indexing** | HNSW for large datasets | Memory vs. search speed |
-| **API** | Synchronous HTTP | Simplicity vs. async complexity |
-| **Scalability** | Single-instance | Performance vs. horizontal scaling |
+| Aspect | Benefit |
+|--------|---------|
+| **Storage** | Zero-latency access with predictable memory usage |
+| **Concurrency** | Multiple concurrent searches with simple lock model |
+| **ML Integration** | Native Rust models with pluggable architecture |
+| **Indexing** | HNSW provides O(log n) search with configurable accuracy |
+| **API** | Simple synchronous HTTP interface for easy integration |
+| **Performance** | Single-instance optimization for maximum throughput |
 
 ## Getting Started
 
