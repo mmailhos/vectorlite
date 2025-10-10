@@ -2,26 +2,20 @@
 
 A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
 
-## Architecture Philosophy
+## Overview
 
-VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for session-based AI applications where data locality and response time are critical.
+VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for:
 
-## Design Decisions
+- **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
+- **Real-time Search**: Sub-millisecond response requirements  
+- **Prototype Development**: Rapid iteration without infrastructure complexity
+- **Single-tenant Applications**: No multi-tenancy isolation requirements
 
-### In-Memory Architecture
-- **Pure in-memory storage** for zero-latency access patterns
-- **Session-scoped data** optimized for AI agent workflows
-- **Predictable memory bounds** with no persistence overhead
-
-### Thread-Safe Concurrency Model
-- **RwLock per collection** enabling concurrent searches
-- **Atomic ID generation** for lock-free operations
-- **No distributed coordination** overhead for single-instance performance
-
-### Built-in ML Integration
-- **Native Rust ML models** using Candle framework
-- **Interchangeable embedding models** with pluggable architecture
-- **Pre-computed embeddings** to minimize lock contention
+### Key Features
+- **In-memory storage** for zero-latency access patterns
+- **Native Rust ML models** using Candle framework with pluggable architecture
+- **Thread-safe concurrency** with RwLock per collection and atomic ID generation
+- **HNSW indexing** for approximate nearest neighbor search with configurable accuracy
 
 ## HTTP API
 
@@ -57,18 +51,6 @@ DELETE /collections/{name}/vectors/{id}
 - **Memory**: ~2-3x vector size due to graph structure
 - **Use Case**: Large datasets with approximate search tolerance
 
-## Concurrency Model
-
-### Lock Hierarchy
-1. **Collection Level**: Each collection has independent RwLock
-2. **Index Level**: HNSW/Flat index wrapped in Arc<RwLock<VectorIndexWrapper>>
-3. **ID Generation**: AtomicU64 with Relaxed ordering for maximum performance
-
-### Memory Ordering Strategy
-- **ID Generation**: `Ordering::Relaxed` - sufficient for uniqueness guarantees
-- **Index Operations**: RwLock provides sequential consistency
-- **Embedding Generation**: Outside critical sections to minimize contention
-
 ## ML Model Integration
 
 ### Built-in Embedding Models
@@ -96,30 +78,6 @@ cargo build --features memory-optimized
 cargo build --features high-accuracy
 ```
 
-## Use Cases
-
-### Optimal Scenarios
-- **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
-- **Real-time Search**: Sub-millisecond response requirements
-- **Prototype Development**: Rapid iteration without infrastructure complexity
-- **Single-tenant Applications**: No multi-tenancy isolation requirements
-
-### Anti-Patterns
-- **Distributed Systems**: No built-in clustering or replication
-- **Persistent Storage**: Data loss on restart
-- **Multi-tenant SaaS**: No tenant isolation or resource limits
-- **Large-scale Analytics**: Not optimized for batch processing
-
-## Key Advantages
-
-| Aspect | Benefit |
-|--------|---------|
-| **Storage** | Zero-latency access with predictable memory usage |
-| **Concurrency** | Multiple concurrent searches with simple lock model |
-| **ML Integration** | Native Rust models with pluggable architecture |
-| **Indexing** | HNSW provides O(log n) search with configurable accuracy |
-| **API** | Simple synchronous HTTP interface for easy integration |
-| **Performance** | Single-instance optimization for maximum throughput |
 
 ## Getting Started
 
