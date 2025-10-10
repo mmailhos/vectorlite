@@ -1,13 +1,67 @@
+//! # Client Module
+//!
+//! This module provides the main client interface for VectorLite, including collection management,
+//! vector operations, and search functionality.
+//!
+//! The `VectorLiteClient` is the primary entry point for interacting with the vector database.
+//! It manages collections of vectors and provides thread-safe operations for adding, searching,
+//! and deleting vectors.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
+//!
+//! // Create a client with an embedding function
+//! let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//!
+//! // Create a collection
+//! client.create_collection("documents", IndexType::HNSW)?;
+//!
+//! // Add text (auto-generates embedding)
+//! let id = client.add_text_to_collection("documents", "Hello world")?;
+//!
+//! // Search for similar text
+//! let results = client.search_text_in_collection(
+//!     "documents", 
+//!     "hello", 
+//!     5, 
+//!     SimilarityMetric::Cosine
+//! )?;
+//! ```
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
 use crate::{VectorIndexWrapper, VectorIndex, Vector, SearchResult, SimilarityMetric, EmbeddingFunction};
 
+/// Main client for interacting with VectorLite
+///
+/// The `VectorLiteClient` provides a high-level interface for managing vector collections,
+/// performing searches, and handling embeddings. It's designed to be thread-safe and
+/// efficient for AI agent workloads.
+///
+/// # Thread Safety
+///
+/// The client uses `Arc<RwLock<>>` for collections and atomic counters for ID generation,
+/// making it safe to use across multiple threads.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+///
+/// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+/// client.create_collection("docs", IndexType::HNSW)?;
+/// ```
 pub struct VectorLiteClient {
-    collections: HashMap<String, Collection>,
+    collections: HashMap<String, CollectionRef>,
     embedding_function: Arc<dyn EmbeddingFunction>,
 }
 
+/// Configuration settings for VectorLite
+///
+/// Currently unused but reserved for future configuration options.
 pub struct Settings {}
 
 impl VectorLiteClient {
@@ -29,7 +83,7 @@ impl VectorLiteClient {
             IndexType::HNSW => VectorIndexWrapper::HNSW(crate::HNSWIndex::new(dimension)),
         };
 
-        let collection = InnerCollection {
+        let collection = Collection {
             name: name.to_string(),
             index: Arc::new(RwLock::new(index)),
             next_id: Arc::new(AtomicU64::new(0)),
@@ -39,7 +93,7 @@ impl VectorLiteClient {
         Ok(())
     }
 
-    pub fn get_collection(&self, name: &str) -> Option<&Collection> {
+    pub fn get_collection(&self, name: &str) -> Option<&CollectionRef> {
         self.collections.get(name)
     }
 
@@ -109,29 +163,90 @@ impl VectorLiteClient {
     }
 }
 
+/// Index types available for vector collections
+///
+/// Different index types offer different trade-offs between search speed, memory usage,
+/// and accuracy. Choose based on your dataset size and performance requirements.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+///
+/// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+/// 
+/// // For small datasets with exact search requirements
+/// client.create_collection("small_data", IndexType::Flat)?;
+/// 
+/// // For large datasets with approximate search tolerance
+/// client.create_collection("large_data", IndexType::HNSW)?;
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub enum IndexType {
+    /// Flat index - exact search with O(n) complexity
+    /// 
+    /// Best for:
+    /// - Small datasets (< 10K vectors)
+    /// - Exact search requirements
+    /// - Memory-constrained environments
     Flat,
+    /// HNSW index - approximate search with O(log n) complexity
+    /// 
+    /// Best for:
+    /// - Large datasets (> 10K vectors)
+    /// - Approximate search tolerance
+    /// - High-performance requirements
     HNSW,
 }
 
-type Collection = Arc<InnerCollection>;
-
-pub struct InnerCollection {
+/// Collection structure containing the vector index and metadata
+///
+/// This struct wraps the actual vector index with thread-safe primitives
+/// and provides atomic ID generation for new vectors.
+///
+/// # Thread Safety
+///
+/// Uses `Arc<RwLock<>>` for the index to allow concurrent reads and exclusive writes,
+/// and `Arc<AtomicU64>` for thread-safe ID generation.
+pub struct Collection {
     name: String,
     index: Arc<RwLock<VectorIndexWrapper>>,
     next_id: Arc<AtomicU64>,
 }
 
+/// Type alias for a thread-safe collection reference
+type CollectionRef = Arc<Collection>;
+
+/// Information about a collection
+///
+/// Contains metadata about a vector collection including its name, size,
+/// vector dimension, and whether it's empty.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+///
+/// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+/// client.create_collection("docs", IndexType::HNSW)?;
+/// 
+/// let info = client.get_collection_info("docs")?;
+/// println!("Collection '{}' has {} vectors of dimension {}", 
+///          info.name, info.count, info.dimension);
+/// ```
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CollectionInfo {
+    /// Name of the collection
     pub name: String,
+    /// Number of vectors in the collection
     pub count: usize,
+    /// Whether the collection is empty
     pub is_empty: bool,
+    /// Dimension of vectors in this collection
     pub dimension: usize,
 }
 
-impl std::fmt::Debug for InnerCollection {
+impl std::fmt::Debug for Collection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Collection")
             .field("name", &self.name)
@@ -140,7 +255,7 @@ impl std::fmt::Debug for InnerCollection {
     }
 }
 
-impl InnerCollection {
+impl Collection {
     pub fn add_text(&self, text: &str, embedding_function: &dyn EmbeddingFunction) -> Result<u64, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         

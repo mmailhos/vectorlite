@@ -1,3 +1,41 @@
+//! # HNSW Index Implementation
+//!
+//! This module provides a Hierarchical Navigable Small World (HNSW) index implementation
+//! for approximate nearest neighbor search. HNSW offers excellent performance for large
+//! datasets with logarithmic search complexity.
+//!
+//! ## Performance Characteristics
+//!
+//! - **Search Complexity**: O(log n) - logarithmic search time
+//! - **Insert Complexity**: O(log n) - logarithmic insert time
+//! - **Memory Usage**: ~2-3x vector size due to graph structure
+//! - **Accuracy**: High (configurable via parameters)
+//!
+//! ## Use Cases
+//!
+//! - Large datasets (> 10K vectors)
+//! - Approximate search tolerance
+//! - High-performance requirements
+//! - Production systems
+//!
+//! ## Configuration
+//!
+//! The index behavior can be tuned via Cargo features:
+//! - `memory-optimized`: Reduces memory usage with lower connection counts
+//! - `high-accuracy`: Increases accuracy with higher connection counts
+//!
+//! # Examples
+//!
+//! ```rust
+//! use vectorlite::{HNSWIndex, Vector, SimilarityMetric};
+//!
+//! let mut index = HNSWIndex::new(384);
+//! let vector = Vector { id: 1, values: vec![0.1; 384] };
+//! 
+//! index.add(vector)?;
+//! let results = index.search(&[0.1; 384], 5, SimilarityMetric::Cosine);
+//! ```
+
 use std::collections::HashMap;
 use std::fmt::{Formatter, Debug};
 use rand::rngs::StdRng;

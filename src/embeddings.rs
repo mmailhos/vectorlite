@@ -1,3 +1,27 @@
+//! # Embeddings Module
+//!
+//! This module provides embedding generation functionality using the Candle ML framework.
+//! It includes a default BERT-based embedding generator and a trait for custom implementations.
+//!
+//! The `EmbeddingGenerator` uses the all-MiniLM-L6-v2 model by default, which provides
+//! 384-dimensional embeddings suitable for general-purpose text similarity tasks.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use vectorlite::{EmbeddingGenerator, EmbeddingFunction};
+//!
+//! // Create a new embedding generator
+//! let generator = EmbeddingGenerator::new()?;
+//!
+//! // Generate embedding for text
+//! let embedding = generator.generate_embedding("Hello world")?;
+//! println!("Generated {}D embedding", embedding.len());
+//! 
+//! // Get the dimension
+//! println!("Embedding dimension: {}", generator.dimension());
+//! ```
+
 use thiserror::Error;
 use std::path::Path;
 use std::sync::Arc;
@@ -8,20 +32,50 @@ use tokenizers::Tokenizer;
 
 const DEFAULT_EMBEDDING_MODEL: &str = "all-MiniLM-L6-v2";
 
+/// Errors that can occur during embedding generation
+///
+/// This enum covers various failure modes in the embedding pipeline,
+/// from model loading to inference errors.
 #[derive(Error, Debug)]
 pub enum EmbeddingError {
+    /// Failed to load the embedding model
     #[error("Model loading failed: {0}")]
     ModelLoading(String),
+    /// Failed to tokenize input text
     #[error("Tokenization failed: {0}")]
     Tokenization(String),
+    /// Failed during model inference
     #[error("Inference failed: {0}")]
     Inference(String),
+    /// Vector dimension mismatch
     #[error("Dimension mismatch: expected {expected}, got {actual}")]
     DimensionMismatch { expected: usize, actual: usize },
 }
 
+/// Result type for embedding operations
 pub type Result<T> = std::result::Result<T, EmbeddingError>;
 
+/// BERT-based embedding generator using the Candle framework
+///
+/// This generator uses the all-MiniLM-L6-v2 model to create 384-dimensional
+/// embeddings from text input. It's optimized for general-purpose text similarity tasks.
+///
+/// # Model Details
+///
+/// - **Model**: all-MiniLM-L6-v2
+/// - **Dimension**: 384
+/// - **Framework**: Candle (Rust ML)
+/// - **Device**: CPU (with optional GPU acceleration)
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::EmbeddingGenerator;
+///
+/// let generator = EmbeddingGenerator::new()?;
+/// let embedding = generator.generate_embedding("Hello world")?;
+/// assert_eq!(embedding.len(), 384);
+/// ```
 pub struct EmbeddingGenerator {
     model: Arc<BertModel>,
     tokenizer: Arc<Tokenizer>,
@@ -40,8 +94,39 @@ impl std::fmt::Debug for EmbeddingGenerator {
     }
 }
 
+/// Trait for embedding generation functions
+///
+/// This trait allows for pluggable embedding implementations, enabling
+/// custom models or different embedding strategies.
+///
+/// # Thread Safety
+///
+/// Implementations must be `Send + Sync` to work with the thread-safe client.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{EmbeddingFunction, EmbeddingError};
+/// use std::result::Result;
+///
+/// struct CustomEmbedding;
+///
+/// impl EmbeddingFunction for CustomEmbedding {
+///     fn generate_embedding(&self, text: &str) -> Result<Vec<f64>, EmbeddingError> {
+///         // Custom embedding logic
+///         Ok(vec![0.1; 384])
+///     }
+///     
+///     fn dimension(&self) -> usize {
+///         384
+///     }
+/// }
+/// ```
 pub trait EmbeddingFunction: Send + Sync {
+    /// Generate an embedding vector for the given text
     fn generate_embedding(&self, text: &str) -> Result<Vec<f64>>;
+    
+    /// Get the dimension of embeddings produced by this function
     fn dimension(&self) -> usize;
 }
 

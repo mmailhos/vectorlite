@@ -1,3 +1,92 @@
+//! # VectorLite
+//!
+//! A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
+//!
+//! ## Overview
+//!
+//! VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for:
+//!
+//! - **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
+//! - **Real-time Search**: Sub-millisecond response requirements  
+//! - **Prototype Development**: Rapid iteration without infrastructure complexity
+//! - **Single-tenant Applications**: No multi-tenancy isolation requirements
+//!
+//! ## Key Features
+//!
+//! - **In-memory storage** for zero-latency access patterns
+//! - **Native Rust ML models** using Candle framework with pluggable architecture
+//! - **Thread-safe concurrency** with RwLock per collection and atomic ID generation
+//! - **HNSW indexing** for approximate nearest neighbor search with configurable accuracy
+//! - **HTTP API** for easy integration with AI agents and other services
+//!
+//! ## Quick Start
+//!
+//! ```rust
+//! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
+//!
+//! // Create client with embedding function
+//! let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//!
+//! // Create collection
+//! client.create_collection("documents", IndexType::HNSW)?;
+//!
+//! // Add text (auto-generates embedding and ID)
+//! let id = client.add_text_to_collection("documents", "Hello world")?;
+//!
+//! // Search
+//! let results = client.search_text_in_collection(
+//!     "documents", 
+//!     "hello", 
+//!     5, 
+//!     SimilarityMetric::Cosine
+//! )?;
+//! ```
+//!
+//! ## Index Types
+//!
+//! ### FlatIndex
+//! - **Complexity**: O(n) search, O(1) insert
+//! - **Memory**: Linear with dataset size
+//! - **Use Case**: Small datasets (< 10K vectors) or exact search requirements
+//!
+//! ### HNSWIndex
+//! - **Complexity**: O(log n) search, O(log n) insert
+//! - **Memory**: ~2-3x vector size due to graph structure
+//! - **Use Case**: Large datasets with approximate search tolerance
+//!
+//! ## Similarity Metrics
+//!
+//! - **Cosine**: Default for normalized embeddings, scale-invariant
+//! - **Euclidean**: Geometric distance, sensitive to vector magnitude
+//! - **Manhattan**: L1 norm, robust to outliers
+//! - **Dot Product**: Raw similarity, requires consistent vector scaling
+//!
+//! ## HTTP Server
+//!
+//! ```rust
+//! use vectorlite::{VectorLiteClient, EmbeddingGenerator, start_server};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//!     start_server(client, "127.0.0.1", 3000).await?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Configuration Profiles
+//!
+//! ```bash
+//! # Balanced (default)
+//! cargo build
+//!
+//! # Memory-constrained environments
+//! cargo build --features memory-optimized
+//!
+//! # High-precision search
+//! cargo build --features high-accuracy
+//! ```
+
 pub mod index;
 pub mod embeddings;
 pub mod client;
@@ -6,38 +95,120 @@ pub mod server;
 pub use index::flat::FlatIndex;
 pub use index::hnsw::HNSWIndex;
 pub use embeddings::{EmbeddingGenerator, EmbeddingFunction};
-pub use client::{VectorLiteClient, InnerCollection, Settings, IndexType};
+pub use client::{VectorLiteClient, Collection, Settings, IndexType};
 pub use server::{create_app, start_server};
 
 use serde::{Serialize, Deserialize};
 
+/// Default vector dimension for embedding models
 pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 
+/// Represents a vector with an ID and floating-point values
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::Vector;
+///
+/// let vector = Vector {
+///     id: 1,
+///     values: vec![0.1, 0.2, 0.3, 0.4],
+/// };
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Vector {
+    /// Unique identifier for the vector
     pub id: u64,
+    /// The vector values (embedding coordinates)
     pub values: Vec<f64>,
 }
 
+/// Search result containing a vector ID and similarity score
+///
+/// Results are typically sorted by score in descending order (highest similarity first).
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::SearchResult;
+///
+/// let result = SearchResult {
+///     id: 42,
+///     score: 0.95,
+/// };
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
+    /// The ID of the matching vector
     pub id: u64,
+    /// Similarity score (higher is more similar)
     pub score: f64,
 }
 
+/// Trait for vector indexing implementations
+///
+/// This trait defines the common interface for different vector indexing strategies,
+/// allowing for pluggable implementations like FlatIndex and HNSWIndex.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{VectorIndex, Vector, SimilarityMetric, FlatIndex};
+///
+/// let mut index = FlatIndex::new(3, Vec::new());
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// 
+/// index.add(vector)?;
+/// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+/// ```
 pub trait VectorIndex {
+    /// Add a vector to the index
     fn add(&mut self, vector: Vector) -> Result<(), String>;
+    
+    /// Remove a vector from the index by ID
     fn delete(&mut self, id: u64) -> Result<(), String>;
+    
+    /// Search for the k most similar vectors
     fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult>;
+    
+    /// Get the number of vectors in the index
     fn len(&self) -> usize;
+    
+    /// Check if the index is empty
     fn is_empty(&self) -> bool;
+    
+    /// Get a vector by its ID
     fn get_vector(&self, id: u64) -> Option<&Vector>;
+    
+    /// Get the dimension of vectors in this index
     fn dimension(&self) -> usize;
 }
 
+/// Wrapper enum for different vector index implementations
+///
+/// This allows for dynamic dispatch between different indexing strategies
+/// while maintaining a unified interface through the VectorIndex trait.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{VectorIndexWrapper, FlatIndex, HNSWIndex, Vector, SimilarityMetric};
+///
+/// // Create a flat index wrapper
+/// let mut wrapper = VectorIndexWrapper::Flat(FlatIndex::new(3, Vec::new()));
+/// 
+/// // Add a vector
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// wrapper.add(vector)?;
+/// 
+/// // Search using the wrapper
+/// let results = wrapper.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub enum VectorIndexWrapper {
+    /// Flat index for exact search (O(n) complexity)
     Flat(FlatIndex),
+    /// HNSW index for approximate search (O(log n) complexity)
     HNSW(HNSWIndex),
 }
 
@@ -92,11 +263,34 @@ impl VectorIndex for VectorIndexWrapper {
     }
 }
 
+/// Similarity metrics for vector comparison
+///
+/// Different metrics are suitable for different use cases and vector characteristics.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::SimilarityMetric;
+///
+/// let a = vec![1.0, 2.0, 3.0];
+/// let b = vec![1.1, 2.1, 3.1];
+/// 
+/// let cosine_score = SimilarityMetric::Cosine.calculate(&a, &b);
+/// let euclidean_score = SimilarityMetric::Euclidean.calculate(&a, &b);
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SimilarityMetric {
+    /// Cosine similarity - scale-invariant, good for normalized embeddings
+    /// Range: [-1, 1], where 1 is identical
     Cosine,
+    /// Euclidean similarity - geometric distance converted to similarity
+    /// Range: [0, 1], where 1 is identical
     Euclidean,
+    /// Manhattan similarity - L1 norm distance converted to similarity
+    /// Range: [0, 1], where 1 is identical, robust to outliers
     Manhattan,
+    /// Dot product - raw similarity without normalization
+    /// Range: unbounded, requires consistent vector scaling
     DotProduct,
 }
 
@@ -119,6 +313,37 @@ impl Default for SimilarityMetric {
     }
 }
 
+/// Calculate cosine similarity between two vectors
+///
+/// Cosine similarity measures the cosine of the angle between two vectors,
+/// making it scale-invariant and suitable for normalized embeddings.
+///
+/// # Arguments
+///
+/// * `a` - First vector
+/// * `b` - Second vector (must have same length as `a`)
+///
+/// # Returns
+///
+/// Similarity score in range [-1, 1] where:
+/// - 1.0 = identical vectors
+/// - 0.0 = orthogonal vectors  
+/// - -1.0 = opposite vectors
+///
+/// # Panics
+///
+/// Panics if vectors have different lengths.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::cosine_similarity;
+///
+/// let a = vec![1.0, 2.0, 3.0];
+/// let b = vec![1.0, 2.0, 3.0];
+/// let similarity = cosine_similarity(&a, &b);
+/// assert!((similarity - 1.0).abs() < 1e-10); // Identical vectors
+/// ```
 pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len(), "Vectors must have the same length");
 
@@ -140,6 +365,36 @@ pub fn cosine_similarity(a: &[f64], b: &[f64]) -> f64 {
     }
 }
 
+/// Calculate Euclidean similarity between two vectors
+///
+/// Euclidean similarity converts the Euclidean distance to a similarity score.
+/// It's sensitive to vector magnitude and suitable for vectors with consistent scaling.
+///
+/// # Arguments
+///
+/// * `a` - First vector
+/// * `b` - Second vector (must have same length as `a`)
+///
+/// # Returns
+///
+/// Similarity score in range [0, 1] where:
+/// - 1.0 = identical vectors
+/// - 0.0 = very distant vectors
+///
+/// # Panics
+///
+/// Panics if vectors have different lengths.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::euclidean_similarity;
+///
+/// let a = vec![0.0, 0.0];
+/// let b = vec![3.0, 4.0];
+/// let similarity = euclidean_similarity(&a, &b);
+/// // Distance is 5.0, so similarity is 1/(1+5) = 1/6 ≈ 0.167
+/// ```
 pub fn euclidean_similarity(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len(), "Vectors must have the same length");
     
@@ -155,6 +410,36 @@ pub fn euclidean_similarity(a: &[f64], b: &[f64]) -> f64 {
     1.0 / (1.0 + distance)
 }
 
+/// Calculate Manhattan similarity between two vectors
+///
+/// Manhattan similarity converts the L1 norm (Manhattan distance) to a similarity score.
+/// It's robust to outliers and suitable for high-dimensional sparse vectors.
+///
+/// # Arguments
+///
+/// * `a` - First vector
+/// * `b` - Second vector (must have same length as `a`)
+///
+/// # Returns
+///
+/// Similarity score in range [0, 1] where:
+/// - 1.0 = identical vectors
+/// - 0.0 = very distant vectors
+///
+/// # Panics
+///
+/// Panics if vectors have different lengths.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::manhattan_similarity;
+///
+/// let a = vec![0.0, 0.0];
+/// let b = vec![3.0, 4.0];
+/// let similarity = manhattan_similarity(&a, &b);
+/// // Distance is 7.0, so similarity is 1/(1+7) = 1/8 = 0.125
+/// ```
 pub fn manhattan_similarity(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len(), "Vectors must have the same length");
     
@@ -168,6 +453,37 @@ pub fn manhattan_similarity(a: &[f64], b: &[f64]) -> f64 {
     1.0 / (1.0 + distance)
 }
 
+/// Calculate dot product between two vectors
+///
+/// Dot product is the raw similarity without normalization.
+/// It requires consistent vector scaling and can produce unbounded results.
+///
+/// # Arguments
+///
+/// * `a` - First vector
+/// * `b` - Second vector (must have same length as `a`)
+///
+/// # Returns
+///
+/// Dot product value (unbounded range):
+/// - Positive values indicate similar direction
+/// - Zero indicates orthogonal vectors
+/// - Negative values indicate opposite direction
+///
+/// # Panics
+///
+/// Panics if vectors have different lengths.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::dot_product;
+///
+/// let a = vec![1.0, 2.0, 3.0];
+/// let b = vec![1.0, 2.0, 3.0];
+/// let product = dot_product(&a, &b);
+/// assert!((product - 14.0).abs() < 1e-10); // 1*1 + 2*2 + 3*3 = 14
+/// ```
 pub fn dot_product(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len(), "Vectors must have the same length");
     

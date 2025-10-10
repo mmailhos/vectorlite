@@ -2,6 +2,15 @@
 name = "vectorlite"
 version = "0.1.0"
 edition = "2024"
+description = "A high-performance, in-memory vector database optimized for AI agent workloads"
+license = "Apache-2.0"
+repository = "https://github.com/mmailhos/vectorlite"
+homepage = "https://github.com/mmailhos/vectorlite"
+documentation = "https://docs.rs/vectorlite"
+keywords = ["vector", "database", "embedding", "search", "ai", "ml"]
+categories = ["database", "machine-learning", "web-programming::http-server"]
+authors = ["Mathieu Mailhos"]
+readme = "README.md"
 
 [features]
 default = ["fast"]
