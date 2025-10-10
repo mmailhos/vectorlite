@@ -1,3 +1,40 @@
+//! # HTTP Server Module
+//!
+//! This module provides HTTP API endpoints for VectorLite, enabling easy integration
+//! with AI agents and other services. The server uses Axum for high-performance
+//! async request handling.
+//!
+//! # API Endpoints
+//!
+//! ## Health Check
+//! - `GET /health` - Server health status
+//!
+//! ## Collection Management
+//! - `GET /collections` - List all collections
+//! - `POST /collections` - Create a new collection
+//! - `DELETE /collections/{name}` - Delete a collection
+//!
+//! ## Vector Operations
+//! - `POST /collections/{name}/text` - Add text (auto-generates embedding)
+//! - `POST /collections/{name}/vector` - Add raw vector
+//! - `POST /collections/{name}/search/text` - Search by text
+//! - `POST /collections/{name}/search/vector` - Search by vector
+//! - `GET /collections/{name}/vectors/{id}` - Get vector by ID
+//! - `DELETE /collections/{name}/vectors/{id}` - Delete vector by ID
+//!
+//! # Examples
+//!
+//! ```rust
+//! use vectorlite::{VectorLiteClient, EmbeddingGenerator, start_server};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//!     start_server(client, "127.0.0.1", 3000).await?;
+//!     Ok(())
+//! }
+//! ```
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,

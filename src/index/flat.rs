@@ -1,10 +1,60 @@
+//! # Flat Index Implementation
+//!
+//! This module provides a simple flat index implementation that stores vectors
+//! in a linear array and performs exact search by comparing against all vectors.
+//!
+//! ## Performance Characteristics
+//!
+//! - **Search Complexity**: O(n) - must check every vector
+//! - **Insert Complexity**: O(1) - append to end of array
+//! - **Memory Usage**: Linear with dataset size
+//! - **Accuracy**: 100% - exact search results
+//!
+//! ## Use Cases
+//!
+//! - Small datasets (< 10K vectors)
+//! - Exact search requirements
+//! - Memory-constrained environments
+//! - Prototype development
+//!
+//! # Examples
+//!
+//! ```rust
+//! use vectorlite::{FlatIndex, Vector, SimilarityMetric};
+//!
+//! let mut index = FlatIndex::new(3, Vec::new());
+//! let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+//! 
+//! index.add(vector)?;
+//! let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+//! ```
+
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
 use serde::{Serialize, Deserialize};
 
 
+/// Flat index implementation for exact vector search
+///
+/// This index stores vectors in a simple array and performs linear search
+/// to find the most similar vectors. While slower than approximate methods,
+/// it guarantees exact results.
+///
+/// # Examples
+///
+/// ```rust
+/// use vectorlite::{FlatIndex, Vector, SimilarityMetric};
+///
+/// let mut index = FlatIndex::new(3, Vec::new());
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// 
+/// index.add(vector)?;
+/// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+/// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FlatIndex {
+    /// Dimension of vectors stored in this index
     pub dim: usize,
+    /// Storage for all vectors
     pub data: Vec<Vector>,
 }
 
