@@ -258,7 +258,7 @@ mod tests {
         
         // Create HNSW collection
         let hnsw_index = HNSWIndex::new(3);
-        let index = VectorIndexWrapper::HNSW(hnsw_index);
+        let index = VectorIndexWrapper::HNSW(Box::new(hnsw_index));
         
         let collection = Collection::new("test_hnsw_collection".to_string(), index);
         

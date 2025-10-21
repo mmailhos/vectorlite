@@ -168,6 +168,11 @@ impl VectorLiteClient {
         
         collection.get_info()
     }
+
+    /// Add a collection directly (used internally for loading from files)
+    pub(crate) fn add_collection(&mut self, name: String, collection: Collection) {
+        self.collections.insert(name, Arc::new(collection));
+    }
 }
 
 /// Index types available for vector collections
