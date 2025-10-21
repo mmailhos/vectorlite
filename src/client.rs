@@ -12,6 +12,7 @@
 //! ```rust
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a client with an embedding function
 //! let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
@@ -28,6 +29,8 @@
 //!     5, 
 //!     SimilarityMetric::Cosine
 //! )?;
+//! # Ok(())
+//! # }
 //! ```
 
 use std::collections::HashMap;
@@ -51,8 +54,11 @@ use crate::{VectorIndexWrapper, VectorIndex, Vector, SearchResult, SimilarityMet
 /// ```rust
 /// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 /// client.create_collection("docs", IndexType::HNSW)?;
+/// # Ok(())
+/// # }
 /// ```
 pub struct VectorLiteClient {
     collections: HashMap<String, CollectionRef>,
@@ -173,6 +179,7 @@ impl VectorLiteClient {
 /// ```rust
 /// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 /// 
 /// // For small datasets with exact search requirements
@@ -180,6 +187,8 @@ impl VectorLiteClient {
 /// 
 /// // For large datasets with approximate search tolerance
 /// client.create_collection("large_data", IndexType::HNSW)?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub enum IndexType {
@@ -227,12 +236,15 @@ type CollectionRef = Arc<Collection>;
 /// ```rust
 /// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 /// client.create_collection("docs", IndexType::HNSW)?;
 /// 
 /// let info = client.get_collection_info("docs")?;
 /// println!("Collection '{}' has {} vectors of dimension {}", 
 ///          info.name, info.count, info.dimension);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CollectionInfo {

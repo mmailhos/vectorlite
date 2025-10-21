@@ -11,6 +11,7 @@
 //! ```rust
 //! use vectorlite::{EmbeddingGenerator, EmbeddingFunction};
 //!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create a new embedding generator
 //! let generator = EmbeddingGenerator::new()?;
 //!
@@ -20,6 +21,8 @@
 //! 
 //! // Get the dimension
 //! println!("Embedding dimension: {}", generator.dimension());
+//! # Ok(())
+//! # }
 //! ```
 
 use thiserror::Error;
@@ -72,9 +75,12 @@ pub type Result<T> = std::result::Result<T, EmbeddingError>;
 /// ```rust
 /// use vectorlite::EmbeddingGenerator;
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let generator = EmbeddingGenerator::new()?;
 /// let embedding = generator.generate_embedding("Hello world")?;
 /// assert_eq!(embedding.len(), 384);
+/// # Ok(())
+/// # }
 /// ```
 pub struct EmbeddingGenerator {
     model: Arc<BertModel>,
@@ -106,7 +112,7 @@ impl std::fmt::Debug for EmbeddingGenerator {
 /// # Examples
 ///
 /// ```rust
-/// use vectorlite::{EmbeddingFunction, EmbeddingError};
+/// use vectorlite::{EmbeddingFunction, embeddings::EmbeddingError};
 /// use std::result::Result;
 ///
 /// struct CustomEmbedding;

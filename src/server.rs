@@ -24,13 +24,13 @@
 //!
 //! # Examples
 //!
-//! ```rust
+//! ```rust,no_run
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, start_server};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-//!     start_server(client, "127.0.0.1", 3000).await?;
+//!     start_server(client, "127.0.0.1", 3002).await?;
 //!     Ok(())
 //! }
 //! ```

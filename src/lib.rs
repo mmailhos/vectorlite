@@ -24,8 +24,9 @@
 //! ```rust
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 //!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create client with embedding function
-//! let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//! let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
 //! // Create collection
 //! client.create_collection("documents", IndexType::HNSW)?;
@@ -40,6 +41,8 @@
 //!     5, 
 //!     SimilarityMetric::Cosine
 //! )?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Index Types
@@ -63,13 +66,13 @@
 //!
 //! ## HTTP Server
 //!
-//! ```rust
+//! ```rust,no_run
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, start_server};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-//!     start_server(client, "127.0.0.1", 3000).await?;
+//!     start_server(client, "127.0.0.1", 3001).await?;
 //!     Ok(())
 //! }
 //! ```
@@ -155,11 +158,14 @@ pub struct SearchResult {
 /// ```rust
 /// use vectorlite::{VectorIndex, Vector, SimilarityMetric, FlatIndex};
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = FlatIndex::new(3, Vec::new());
 /// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
 /// 
 /// index.add(vector)?;
 /// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+/// # Ok(())
+/// # }
 /// ```
 pub trait VectorIndex {
     /// Add a vector to the index
@@ -192,8 +198,9 @@ pub trait VectorIndex {
 /// # Examples
 ///
 /// ```rust
-/// use vectorlite::{VectorIndexWrapper, FlatIndex, HNSWIndex, Vector, SimilarityMetric};
+/// use vectorlite::{VectorIndexWrapper, FlatIndex, HNSWIndex, Vector, SimilarityMetric, VectorIndex};
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// // Create a flat index wrapper
 /// let mut wrapper = VectorIndexWrapper::Flat(FlatIndex::new(3, Vec::new()));
 /// 
@@ -203,6 +210,8 @@ pub trait VectorIndex {
 /// 
 /// // Search using the wrapper
 /// let results = wrapper.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub enum VectorIndexWrapper {

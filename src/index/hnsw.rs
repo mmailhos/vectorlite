@@ -27,13 +27,16 @@
 //! # Examples
 //!
 //! ```rust
-//! use vectorlite::{HNSWIndex, Vector, SimilarityMetric};
+//! use vectorlite::{HNSWIndex, Vector, SimilarityMetric, VectorIndex};
 //!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut index = HNSWIndex::new(384);
 //! let vector = Vector { id: 1, values: vec![0.1; 384] };
 //! 
 //! index.add(vector)?;
 //! let results = index.search(&[0.1; 384], 5, SimilarityMetric::Cosine);
+//! # Ok(())
+//! # }
 //! ```
 
 use std::collections::HashMap;

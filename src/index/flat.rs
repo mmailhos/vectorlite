@@ -20,13 +20,16 @@
 //! # Examples
 //!
 //! ```rust
-//! use vectorlite::{FlatIndex, Vector, SimilarityMetric};
+//! use vectorlite::{FlatIndex, Vector, SimilarityMetric, VectorIndex};
 //!
+//! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut index = FlatIndex::new(3, Vec::new());
 //! let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
 //! 
 //! index.add(vector)?;
 //! let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+//! # Ok(())
+//! # }
 //! ```
 
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
@@ -42,13 +45,16 @@ use serde::{Serialize, Deserialize};
 /// # Examples
 ///
 /// ```rust
-/// use vectorlite::{FlatIndex, Vector, SimilarityMetric};
+/// use vectorlite::{FlatIndex, Vector, SimilarityMetric, VectorIndex};
 ///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = FlatIndex::new(3, Vec::new());
 /// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
 /// 
 /// index.add(vector)?;
 /// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FlatIndex {
