@@ -218,7 +218,7 @@ pub enum VectorIndexWrapper {
     /// Flat index for exact search (O(n) complexity)
     Flat(FlatIndex),
     /// HNSW index for approximate search (O(log n) complexity)
-    HNSW(HNSWIndex),
+    HNSW(Box<HNSWIndex>),
 }
 
 impl VectorIndex for VectorIndexWrapper {
