@@ -270,7 +270,6 @@ impl std::fmt::Debug for Collection {
 
 impl Collection {
     /// Create a new collection with the given name and index
-    /// The next_id is automatically determined from the existing vectors in the index
     pub fn new(name: String, index: VectorIndexWrapper) -> Self {
         // Calculate next_id from the maximum ID in the index + 1
         let next_id = match &index {
