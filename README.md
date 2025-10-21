@@ -1,5 +1,10 @@
 # VectorLite
 
+[![Crates.io](https://img.shields.io/crates/v/vectorlite.svg)](https://crates.io/crates/vectorlite)
+[![docs.rs](https://docs.rs/vectorlite/badge.svg)](https://docs.rs/vectorlite)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
+
 A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
 
 ## Overview
