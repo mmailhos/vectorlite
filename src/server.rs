@@ -22,6 +22,24 @@
 //! - `GET /collections/{name}/vectors/{id}` - Get vector by ID
 //! - `DELETE /collections/{name}/vectors/{id}` - Delete vector by ID
 //!
+//! ## Persistence Operations
+//! - `POST /collections/{name}/save` - Save collection to file
+//! - `POST /collections/load` - Load collection from file
+//!
+//! ### Save Collection
+//! ```bash
+//! curl -X POST http://localhost:3001/collections/my_docs/save \
+//!      -H 'Content-Type: application/json' \
+//!      -d '{"file_path": "./my_docs.vlc"}'
+//! ```
+//!
+//! ### Load Collection
+//! ```bash
+//! curl -X POST http://localhost:3001/collections/load \
+//!      -H 'Content-Type: application/json' \
+//!      -d '{"file_path": "./my_docs.vlc", "collection_name": "restored_docs"}'
+//! ```
+//!
 //! # Examples
 //!
 //! ```rust,no_run
@@ -42,6 +60,7 @@ use axum::{
     routing::{get, post, delete},
     Router,
 };
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tower_http::cors::CorsLayer;
@@ -125,6 +144,31 @@ pub struct ListCollectionsResponse {
 pub struct ErrorResponse {
     pub success: bool,
     pub message: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveCollectionRequest {
+    pub file_path: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SaveCollectionResponse {
+    pub success: bool,
+    pub message: String,
+    pub file_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoadCollectionRequest {
+    pub file_path: String,
+    pub collection_name: Option<String>, // Optional: if not provided, uses name from file
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoadCollectionResponse {
+    pub success: bool,
+    pub message: String,
+    pub collection_name: Option<String>,
 }
 
 // App state
@@ -432,6 +476,111 @@ async fn delete_vector(
     }
 }
 
+async fn save_collection(
+    State(state): State<AppState>,
+    Path(collection_name): Path<String>,
+    Json(payload): Json<SaveCollectionRequest>,
+) -> Result<Json<SaveCollectionResponse>, StatusCode> {
+    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    // Get the collection
+    let collection = match client.get_collection(&collection_name) {
+        Some(collection) => collection,
+        None => {
+            return Ok(Json(SaveCollectionResponse {
+                success: false,
+                message: format!("Collection '{}' not found", collection_name),
+                file_path: None,
+            }));
+        }
+    };
+
+    // Convert file path to PathBuf
+    let file_path = PathBuf::from(&payload.file_path);
+    
+    // Save the collection
+    match collection.save_to_file(&file_path) {
+        Ok(_) => {
+            info!("Saved collection '{}' to file: {}", collection_name, payload.file_path);
+            Ok(Json(SaveCollectionResponse {
+                success: true,
+                message: format!("Collection '{}' saved successfully", collection_name),
+                file_path: Some(payload.file_path),
+            }))
+        }
+        Err(e) => {
+            error!("Failed to save collection '{}' to '{}': {}", collection_name, payload.file_path, e);
+            Ok(Json(SaveCollectionResponse {
+                success: false,
+                message: format!("Failed to save collection: {}", e),
+                file_path: None,
+            }))
+        }
+    }
+}
+
+async fn load_collection(
+    State(state): State<AppState>,
+    Json(payload): Json<LoadCollectionRequest>,
+) -> Result<Json<LoadCollectionResponse>, StatusCode> {
+    // Convert file path to PathBuf
+    let file_path = PathBuf::from(&payload.file_path);
+    
+    // Load the collection from file
+    let collection = match crate::Collection::load_from_file(&file_path) {
+        Ok(collection) => collection,
+        Err(e) => {
+            error!("Failed to load collection from '{}': {}", payload.file_path, e);
+            return Ok(Json(LoadCollectionResponse {
+                success: false,
+                message: format!("Failed to load collection: {}", e),
+                collection_name: None,
+            }));
+        }
+    };
+
+    // Determine the collection name to use
+    let collection_name = payload.collection_name.unwrap_or_else(|| collection.name().to_string());
+    
+    // Add the collection to the client
+    let mut client = state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    
+    // Check if collection already exists
+    if client.has_collection(&collection_name) {
+        return Ok(Json(LoadCollectionResponse {
+            success: false,
+            message: format!("Collection '{}' already exists. Use a different name or delete the existing collection first.", collection_name),
+            collection_name: None,
+        }));
+    }
+
+    // Extract the index from the loaded collection
+    let index = {
+        let index_guard = collection.index_read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        (*index_guard).clone()
+    };
+    
+    // Create a new collection with the loaded data
+    let new_collection = crate::Collection::new(collection_name.clone(), index);
+    
+    // Add the collection to the client
+    if let Err(e) = client.add_collection(new_collection) {
+        error!("Failed to add collection '{}': {}", collection_name, e);
+        return Ok(Json(LoadCollectionResponse {
+            success: false,
+            message: format!("Failed to add collection: {}", e),
+            collection_name: None,
+        }));
+    }
+    
+    info!("Loaded collection '{}' from file: {}", collection_name, payload.file_path);
+    Ok(Json(LoadCollectionResponse {
+        success: true,
+        message: format!("Collection '{}' loaded successfully", collection_name),
+        collection_name: Some(collection_name),
+    }))
+}
+
 pub fn create_app(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
@@ -445,6 +594,8 @@ pub fn create_app(state: AppState) -> Router {
         .route("/collections/:name/search/vector", post(search_vector))
         .route("/collections/:name/vectors/:id", get(get_vector))
         .route("/collections/:name/vectors/:id", delete(delete_vector))
+        .route("/collections/:name/save", post(save_collection))
+        .route("/collections/load", post(load_collection))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

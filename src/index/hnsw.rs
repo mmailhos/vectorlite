@@ -46,7 +46,7 @@ use serde::{Deserialize, Serialize, Deserializer};
 use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Euclidean;
 
 const MAXIMUM_NUMBER_CONNECTIONS: usize = if cfg!(feature = "memory-optimized") {
@@ -79,7 +79,7 @@ impl Metric<Vec<f64>> for Euclidean {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct HNSWIndex {
     #[serde(skip)]
     hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
@@ -107,6 +107,11 @@ impl HNSWIndex {
             index_to_id: HashMap::new(),
             vectors: HashMap::new(),
         }
+    }
+
+    /// Get the maximum ID from the stored vectors
+    pub fn max_id(&self) -> Option<u64> {
+        self.vectors.keys().max().copied()
     }
 }
 
