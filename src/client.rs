@@ -86,7 +86,7 @@ impl VectorLiteClient {
         let dimension = self.embedding_function.dimension();
         let index = match index_type {
             IndexType::Flat => VectorIndexWrapper::Flat(crate::FlatIndex::new(dimension, Vec::new())),
-            IndexType::HNSW => VectorIndexWrapper::HNSW(crate::HNSWIndex::new(dimension)),
+            IndexType::HNSW => VectorIndexWrapper::HNSW(Box::new(crate::HNSWIndex::new(dimension))),
         };
 
         let collection = Collection {
