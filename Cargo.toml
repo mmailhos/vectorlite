@@ -8,7 +8,7 @@ repository = "https://github.com/mmailhos/vectorlite"
 homepage = "https://github.com/mmailhos/vectorlite"
 documentation = "https://docs.rs/vectorlite"
 keywords = ["vector", "database", "embedding", "semantic-search", "ai-agents"]
-categories = ["database", "machine-learning", "web-programming::http-server"]
+categories = ["database", "data-structures", "web-programming::http-server"]
 authors = ["Mathieu Mailhos"]
 readme = "README.md"
 
