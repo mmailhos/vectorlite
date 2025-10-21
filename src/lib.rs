@@ -289,10 +289,11 @@ impl VectorIndex for VectorIndexWrapper {
 /// let cosine_score = SimilarityMetric::Cosine.calculate(&a, &b);
 /// let euclidean_score = SimilarityMetric::Euclidean.calculate(&a, &b);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum SimilarityMetric {
     /// Cosine similarity - scale-invariant, good for normalized embeddings
     /// Range: [-1, 1], where 1 is identical
+    #[default]
     Cosine,
     /// Euclidean similarity - geometric distance converted to similarity
     /// Range: [0, 1], where 1 is identical
@@ -318,11 +319,6 @@ impl SimilarityMetric {
     }
 }
 
-impl Default for SimilarityMetric {
-    fn default() -> Self {
-        SimilarityMetric::Cosine
-    }
-}
 
 /// Calculate cosine similarity between two vectors
 ///

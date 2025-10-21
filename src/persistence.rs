@@ -90,7 +90,7 @@ impl CollectionData {
     /// Create a new CollectionData from a Collection
     pub fn from_collection(collection: &Collection) -> Result<Self, PersistenceError> {
         let index = collection.index_read()
-            .map_err(|e| PersistenceError::Collection(e))?;
+            .map_err(PersistenceError::Collection)?;
         
         let index_type = match &*index {
             VectorIndexWrapper::Flat(_) => "Flat",
