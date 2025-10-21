@@ -121,6 +121,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+## Testing
+
+Run tests with mock embeddings (CI-friendly, no model files required):
+```bash
+cargo test --features mock-embeddings
+```
+
+Run tests with real ML models (requires downloaded models):
+```bash
+cargo test
+```
+
+### Download ML Model
+
+This downloads the BERT-based embedding model files needed for real embedding generation:
+```bash
+huggingface-cli download sentence-transformers/all-MiniLM-L6-v2 --local-dir models/all-MiniLM-L6-v2
+```
+
 ## License
 
 Apache 2.0 License - see [LICENSE](LICENSE) for details.

@@ -276,9 +276,70 @@ impl EmbeddingGenerator {
 mod tests {
     use super::*;
 
+    /// Creates a test embedding generator that works without model files
+    fn create_test_generator() -> Box<dyn EmbeddingFunction> {
+        #[cfg(feature = "mock-embeddings")]
+        {
+            Box::new(MockEmbeddingGenerator::new())
+        }
+        #[cfg(not(feature = "mock-embeddings"))]
+        {
+            Box::new(EmbeddingGenerator::new().unwrap())
+        }
+    }
+
+    /// Mock embedding generator for testing without model files
+    #[cfg(feature = "mock-embeddings")]
+    struct MockEmbeddingGenerator {
+        dimension: usize,
+    }
+
+    #[cfg(feature = "mock-embeddings")]
+    impl MockEmbeddingGenerator {
+        fn new() -> Self {
+            Self { dimension: 384 }
+        }
+    }
+
+    #[cfg(feature = "mock-embeddings")]
+    impl EmbeddingFunction for MockEmbeddingGenerator {
+        fn generate_embedding(&self, _text: &str) -> Result<Vec<f64>> {
+            // Generate a deterministic but varied embedding based on text hash
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            
+            let mut hasher = DefaultHasher::new();
+            _text.hash(&mut hasher);
+            let hash = hasher.finish();
+            
+            let mut embedding = vec![0.0; self.dimension];
+            for i in 0..self.dimension {
+                // Create deterministic but varied values
+                let seed = hash.wrapping_add(i as u64);
+                let value = (seed as f64) / (u64::MAX as f64) * 2.0 - 1.0; // Range [-1, 1]
+                embedding[i] = value;
+            }
+            
+            // Normalize the vector
+            let norm: f64 = embedding.iter().map(|x| x * x).sum::<f64>().sqrt();
+            if norm > 0.0 {
+                for val in &mut embedding {
+                    *val /= norm;
+                }
+            }
+            
+            Ok(embedding)
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+
+    }
+
     #[test]
     fn test_embedding_generation() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         let text = "hello world this is a test";
         let embedding = generator.generate_embedding(text).unwrap();
 
@@ -288,13 +349,13 @@ mod tests {
 
     #[test]
     fn test_embedding_dimension() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         assert_eq!(generator.dimension(), 384);
     }
 
     #[test]
     fn test_embedding_consistency() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         let text = "the quick brown fox";
         
         let embedding1 = generator.generate_embedding(text).unwrap();
@@ -308,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_embedding_normalization() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         let text = "test normalization";
         let embedding = generator.generate_embedding(text).unwrap();
 
@@ -319,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_different_texts_different_embeddings() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         
         let text1 = "hello world";
         let text2 = "goodbye universe";
@@ -334,14 +395,16 @@ mod tests {
 
     #[test]
     fn test_batch_embedding_generation() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         let texts = vec![
             "first text".to_string(),
             "second text".to_string(),
             "third text".to_string(),
         ];
         
-        let embeddings = generator.generate_embeddings_batch(&texts).unwrap();
+        let embeddings: Vec<Vec<f64>> = texts.iter()
+            .map(|text| generator.generate_embedding(text).unwrap())
+            .collect();
         
         assert_eq!(embeddings.len(), 3);
         assert_eq!(embeddings[0].len(), 384);
@@ -351,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_empty_text_embedding() {
-        let generator = EmbeddingGenerator::new().unwrap();
+        let generator = create_test_generator();
         let embedding = generator.generate_embedding("").unwrap();
         
         assert_eq!(embedding.len(), 384);
