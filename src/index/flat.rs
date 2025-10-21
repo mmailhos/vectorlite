@@ -56,7 +56,7 @@ use serde::{Serialize, Deserialize};
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlatIndex {
     /// Dimension of vectors stored in this index
     pub dim: usize,

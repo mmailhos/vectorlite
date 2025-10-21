@@ -36,7 +36,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::{VectorIndexWrapper, VectorIndex, Vector, SearchResult, SimilarityMetric, EmbeddingFunction};
+use std::path::Path;
+use crate::{VectorIndexWrapper, VectorIndex, Vector, SearchResult, SimilarityMetric, EmbeddingFunction, PersistenceError, save_collection_to_file, load_collection_from_file};
 
 /// Main client for interacting with VectorLite
 ///
@@ -268,6 +269,15 @@ impl std::fmt::Debug for Collection {
 }
 
 impl Collection {
+    /// Create a new collection with the given name, index, and next_id
+    pub fn new(name: String, index: VectorIndexWrapper, next_id: u64) -> Self {
+        Self {
+            name,
+            index: Arc::new(RwLock::new(index)),
+            next_id: Arc::new(AtomicU64::new(next_id)),
+        }
+    }
+
     pub fn add_text(&self, text: &str, embedding_function: &dyn EmbeddingFunction) -> Result<u64, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         
@@ -326,6 +336,81 @@ impl Collection {
     pub fn name(&self) -> &str {
         &self.name
     }
+
+    /// Get the current next ID value
+    pub fn next_id(&self) -> u64 {
+        self.next_id.load(Ordering::Relaxed)
+    }
+
+    /// Get a read lock on the index
+    pub fn index_read(&self) -> Result<std::sync::RwLockReadGuard<'_, VectorIndexWrapper>, String> {
+        self.index.read().map_err(|_| "Failed to acquire read lock".to_string())
+    }
+
+    /// Save the collection to a file
+    ///
+    /// This method saves the entire collection state to disk, including all vectors,
+    /// the index structure, and the next ID counter. The file format is JSON-based
+    /// and includes metadata for version compatibility.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path where the collection should be saved
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success, or a `PersistenceError` if the operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+    /// use std::path::Path;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+    /// client.create_collection("docs", IndexType::HNSW)?;
+    /// client.add_text_to_collection("docs", "Hello world")?;
+    ///
+    /// let collection = client.get_collection("docs").unwrap();
+    /// collection.save_to_file(Path::new("./docs.vlc"))?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn save_to_file(&self, path: &Path) -> Result<(), PersistenceError> {
+        save_collection_to_file(self, path)
+    }
+
+    /// Load a collection from a file
+    ///
+    /// This method creates a new collection by loading its state from disk.
+    /// The loaded collection will completely replace any existing collection
+    /// with the same name (override strategy).
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The file path from which to load the collection
+    ///
+    /// # Returns
+    ///
+    /// Returns the loaded `Collection` on success, or a `PersistenceError` if the operation fails.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use vectorlite::Collection;
+    /// use std::path::Path;
+    ///
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let collection = Collection::load_from_file(Path::new("./docs.vlc"))?;
+    /// println!("Loaded collection '{}' with {} vectors", 
+    ///          collection.name(), collection.get_info()?.count);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn load_from_file(path: &Path) -> Result<Self, PersistenceError> {
+        load_collection_from_file(path)
+    }
 }
 
 #[cfg(test)]
@@ -345,8 +430,8 @@ mod tests {
 
     impl EmbeddingFunction for MockEmbeddingFunction {
         fn generate_embedding(&self, _text: &str) -> crate::embeddings::Result<Vec<f64>> {
-            // Return a simple mock embedding
-            Ok(vec![1.0, 2.0, 3.0])
+            // Return a simple mock embedding with the correct dimension
+            Ok(vec![1.0; self.dimension])
         }
 
         fn dimension(&self) -> usize {
@@ -581,5 +666,131 @@ mod tests {
         for i in 1..results.len() {
             assert!(results[i-1].score >= results[i].score);
         }
+    }
+
+    #[test]
+    fn test_collection_save_and_load() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create collection and add some data
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.add_text_to_collection("test_collection", "Hello world").unwrap();
+        client.add_text_to_collection("test_collection", "Another text").unwrap();
+        
+        let collection = client.get_collection("test_collection").unwrap();
+        
+        // Save to temporary file
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test_collection.vlc");
+        
+        collection.save_to_file(&file_path).unwrap();
+        assert!(file_path.exists());
+        
+        // Load the collection
+        let loaded_collection = Collection::load_from_file(&file_path).unwrap();
+        
+        // Verify basic properties
+        assert_eq!(loaded_collection.name(), "test_collection");
+        
+        // Verify the index works
+        let info = loaded_collection.get_info().unwrap();
+        assert_eq!(info.count, 2);
+        assert_eq!(info.dimension, 3);
+        assert!(!info.is_empty);
+        
+        // Test search functionality
+        let results = loaded_collection.search_vector(&[1.0, 2.0, 3.0], 2, SimilarityMetric::Cosine).unwrap();
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn test_collection_save_and_load_hnsw() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        // Create HNSW collection and add some data
+        client.create_collection("test_hnsw_collection", IndexType::HNSW).unwrap();
+        client.add_text_to_collection("test_hnsw_collection", "First document").unwrap();
+        client.add_text_to_collection("test_hnsw_collection", "Second document").unwrap();
+        
+        let collection = client.get_collection("test_hnsw_collection").unwrap();
+        
+        // Verify the original collection works
+        let info = collection.get_info().unwrap();
+        assert_eq!(info.count, 2);
+        assert_eq!(info.dimension, 3);
+        
+        // Create a separate embedding function for testing
+        let test_embedding_fn = MockEmbeddingFunction::new(3);
+        
+        // Test search on original collection using text search (like the working test)
+        let results = collection.search_text("First", 1, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
+        assert_eq!(results.len(), 1);
+        
+        // Save to temporary file
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test_hnsw_collection.vlc");
+        
+        collection.save_to_file(&file_path).unwrap();
+        assert!(file_path.exists());
+        
+        // Load the collection
+        let loaded_collection = Collection::load_from_file(&file_path).unwrap();
+        
+        // Verify basic properties
+        assert_eq!(loaded_collection.name(), "test_hnsw_collection");
+        
+        // Verify the index works
+        let info = loaded_collection.get_info().unwrap();
+        assert_eq!(info.count, 2);
+        assert_eq!(info.dimension, 3);
+        assert!(!info.is_empty);
+        
+        // Test search functionality using text search
+        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn test_collection_save_nonexistent_directory() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
+        
+        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.add_text_to_collection("test_collection", "Hello world").unwrap();
+        
+        let collection = client.get_collection("test_collection").unwrap();
+        
+        // Try to save to a non-existent directory (should create it)
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("nonexistent").join("test_collection.vlc");
+        
+        let result = collection.save_to_file(&file_path);
+        assert!(result.is_ok());
+        assert!(file_path.exists());
+    }
+
+    #[test]
+    fn test_collection_load_nonexistent_file() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("nonexistent.vlc");
+        
+        let result = Collection::load_from_file(&file_path);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PersistenceError::Io(_)));
+    }
+
+    #[test]
+    fn test_collection_load_invalid_json() {
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("invalid.vlc");
+        
+        // Write invalid JSON
+        std::fs::write(&file_path, "invalid json content").unwrap();
+        
+        let result = Collection::load_from_file(&file_path);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), PersistenceError::Serialization(_)));
     }
 }

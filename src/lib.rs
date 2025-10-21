@@ -94,12 +94,14 @@ pub mod index;
 pub mod embeddings;
 pub mod client;
 pub mod server;
+pub mod persistence;
 
 pub use index::flat::FlatIndex;
 pub use index::hnsw::HNSWIndex;
 pub use embeddings::{EmbeddingGenerator, EmbeddingFunction};
 pub use client::{VectorLiteClient, Collection, Settings, IndexType};
 pub use server::{create_app, start_server};
+pub use persistence::{PersistenceError, save_collection_to_file, load_collection_from_file};
 
 use serde::{Serialize, Deserialize};
 
@@ -213,7 +215,7 @@ pub trait VectorIndex {
 /// # Ok(())
 /// # }
 /// ```
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VectorIndexWrapper {
     /// Flat index for exact search (O(n) complexity)
     Flat(FlatIndex),
