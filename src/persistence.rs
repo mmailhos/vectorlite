@@ -116,7 +116,10 @@ impl CollectionData {
     
     /// Convert CollectionData back to a Collection
     pub fn to_collection(self) -> Collection {
-        Collection::new(self.metadata.name, self.index, self.next_id)
+        let collection = Collection::new(self.metadata.name, self.index);
+        // Set the next_id to the saved value to maintain ID continuity
+        collection.set_next_id(self.next_id);
+        collection
     }
 }
 
@@ -178,7 +181,7 @@ mod tests {
         let flat_index = FlatIndex::new(3, vectors);
         let index = VectorIndexWrapper::Flat(flat_index);
         
-        Collection::new("test_collection".to_string(), index, 2)
+        Collection::new("test_collection".to_string(), index)
     }
 
     #[test]
@@ -255,9 +258,9 @@ mod tests {
         
         // Create HNSW collection
         let hnsw_index = HNSWIndex::new(3);
-        let index = VectorIndexWrapper::HNSW(Box::new(hnsw_index));
+        let index = VectorIndexWrapper::HNSW(hnsw_index);
         
-        let collection = Collection::new("test_hnsw_collection".to_string(), index, 0);
+        let collection = Collection::new("test_hnsw_collection".to_string(), index);
         
         // Add some vectors
         let vector1 = Vector { id: 0, values: vec![1.0, 2.0, 3.0] };

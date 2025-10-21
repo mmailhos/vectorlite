@@ -269,8 +269,23 @@ impl std::fmt::Debug for Collection {
 }
 
 impl Collection {
-    /// Create a new collection with the given name, index, and next_id
-    pub fn new(name: String, index: VectorIndexWrapper, next_id: u64) -> Self {
+    /// Create a new collection with the given name and index
+    /// The next_id is automatically determined from the existing vectors in the index
+    pub fn new(name: String, index: VectorIndexWrapper) -> Self {
+        // Calculate next_id from the maximum ID in the index + 1
+        let next_id = match &index {
+            VectorIndexWrapper::Flat(flat_index) => {
+                flat_index.max_id()
+                    .map(|max_id| max_id + 1)
+                    .unwrap_or(0)
+            }
+            VectorIndexWrapper::HNSW(hnsw_index) => {
+                hnsw_index.max_id()
+                    .map(|max_id| max_id + 1)
+                    .unwrap_or(0)
+            }
+        };
+
         Self {
             name,
             index: Arc::new(RwLock::new(index)),
@@ -345,6 +360,11 @@ impl Collection {
     /// Get a read lock on the index
     pub fn index_read(&self) -> Result<std::sync::RwLockReadGuard<'_, VectorIndexWrapper>, String> {
         self.index.read().map_err(|_| "Failed to acquire read lock".to_string())
+    }
+
+    /// Set the next_id value (used internally for persistence)
+    pub(crate) fn set_next_id(&self, next_id: u64) {
+        self.next_id.store(next_id, Ordering::Relaxed);
     }
 
     /// Save the collection to a file

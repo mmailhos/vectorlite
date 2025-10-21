@@ -71,6 +71,11 @@ impl FlatIndex {
             data,
         }
     }
+
+    /// Get the maximum ID from the stored vectors
+    pub fn max_id(&self) -> Option<u64> {
+        self.data.iter().map(|v| v.id).max()
+    }
 }
 
 impl VectorIndex for FlatIndex {

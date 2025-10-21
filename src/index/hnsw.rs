@@ -108,6 +108,11 @@ impl HNSWIndex {
             vectors: HashMap::new(),
         }
     }
+
+    /// Get the maximum ID from the stored vectors
+    pub fn max_id(&self) -> Option<u64> {
+        self.vectors.keys().max().copied()
+    }
 }
 
 impl<'de> Deserialize<'de> for HNSWIndex {
