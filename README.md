@@ -22,6 +22,7 @@ VectorLite is designed for **single-instance, low-latency vector operations** in
 - **Native Rust ML models** using Candle framework with pluggable architecture. Bring your own embedding model (default to all-MiniLM-L6-v2)
 - **Thread-safe concurrency** with RwLock per collection and atomic ID generation
 - **HNSW indexing** for approximate nearest neighbor search with configurable accuracy
+- **Collection persistence** with vector lite collection (VLC) file format for saving/loading collections
 
 ## HTTP API
 
@@ -43,7 +44,18 @@ POST /collections/{name}/search/text {"query": "hello", "k": 10}
 POST /collections/{name}/search/vector {"query": [0.1, 0.2, ...], "k": 10}
 GET /collections/{name}/vectors/{id}
 DELETE /collections/{name}/vectors/{id}
+
+# Persistence operations
+POST /collections/{name}/save {"file_path": "./collection.vlc"}
+POST /collections/load {"file_path": "./collection.vlc", "collection_name": "restored"}
 ```
+
+### Features
+- **VLC Format**: Lightweight Vector Lite Collection (JSON-based) file format with versioning
+- **Full Collection State**: Saves complete index structure and metadata
+- **Cross-Platform**: Works across different operating systems
+- **Version Control**: Built-in version checking for compatibility
+- **CLI Support**: Load collections on server startup with `--filepath` option
 
 ## Index Types
 
@@ -56,6 +68,8 @@ DELETE /collections/{name}/vectors/{id}
 - **Complexity**: O(log n) search, O(log n) insert
 - **Memory**: ~2-3x vector size due to graph structure
 - **Use Case**: Large datasets with approximate search tolerance
+
+See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320) paper for details.
 
 ## ML Model Integration
 
@@ -119,6 +133,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_server(client, "127.0.0.1", 3000).await?;
     Ok(())
 }
+```
+
+### CLI Usage
+
+Start the server with optional collection loading:
+
+```bash
+# Start empty server
+cargo run --bin vectorlite -- --port 3002
+
+# Start with pre-loaded collection
+cargo run --bin vectorlite -- --filepath ./my_collection.vlc --port 3002
 ```
 
 ## Testing

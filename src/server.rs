@@ -564,7 +564,14 @@ async fn load_collection(
     let new_collection = crate::Collection::new(collection_name.clone(), index);
     
     // Add the collection to the client
-    client.add_collection(collection_name.clone(), new_collection);
+    if let Err(e) = client.add_collection(new_collection) {
+        error!("Failed to add collection '{}': {}", collection_name, e);
+        return Ok(Json(LoadCollectionResponse {
+            success: false,
+            message: format!("Failed to add collection: {}", e),
+            collection_name: None,
+        }));
+    }
     
     info!("Loaded collection '{}' from file: {}", collection_name, payload.file_path);
     Ok(Json(LoadCollectionResponse {

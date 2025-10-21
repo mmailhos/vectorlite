@@ -169,10 +169,16 @@ impl VectorLiteClient {
         collection.get_info()
     }
 
-    /// Add a collection directly (used internally for loading from files)
-    pub(crate) fn add_collection(&mut self, name: String, collection: Collection) {
+    /// Add a collection directly (used for loading from files)
+    pub fn add_collection(&mut self, collection: Collection) -> Result<(), String> {
+        let name = collection.name().to_string();
+        if self.collections.contains_key(&name) {
+            return Err(format!("Collection '{}' already exists", name));
+        }
         self.collections.insert(name, Arc::new(collection));
+        Ok(())
     }
+
 }
 
 /// Index types available for vector collections
