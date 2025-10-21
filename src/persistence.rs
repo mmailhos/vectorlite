@@ -18,10 +18,10 @@
 //!   },
 //!   "index": {
 //!     // Serialized VectorIndexWrapper
-//!   },
-//!   "next_id": 1001
+//!   }
 //! }
 //! ```
+//! 
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -74,7 +74,6 @@ pub struct CollectionData {
     pub header: FileHeader,
     pub metadata: CollectionMetadata,
     pub index: VectorIndexWrapper,
-    pub next_id: u64,
 }
 
 impl Default for FileHeader {
@@ -93,8 +92,6 @@ impl CollectionData {
         let index = collection.index_read()
             .map_err(|e| PersistenceError::Collection(e))?;
         
-        let next_id = collection.next_id();
-        
         let index_type = match &*index {
             VectorIndexWrapper::Flat(_) => "Flat",
             VectorIndexWrapper::HNSW(_) => "HNSW",
@@ -110,16 +107,12 @@ impl CollectionData {
                 index_type: index_type.to_string(),
             },
             index: (*index).clone(),
-            next_id,
         })
     }
     
     /// Convert CollectionData back to a Collection
     pub fn to_collection(self) -> Collection {
-        let collection = Collection::new(self.metadata.name, self.index);
-        // Set the next_id to the saved value to maintain ID continuity
-        collection.set_next_id(self.next_id);
-        collection
+        Collection::new(self.metadata.name, self.index)
     }
 }
 
@@ -193,7 +186,7 @@ mod tests {
         assert_eq!(collection_data.metadata.vector_count, 2);
         assert_eq!(collection_data.metadata.dimension, 3);
         assert_eq!(collection_data.metadata.index_type, "Flat");
-        assert_eq!(collection_data.next_id, 2);
+        // next_id is no longer stored in the file format
     }
 
     #[test]
@@ -203,6 +196,7 @@ mod tests {
         let restored_collection = collection_data.to_collection();
         
         assert_eq!(restored_collection.name(), original_collection.name());
+        // next_id should be automatically calculated and match
         assert_eq!(
             restored_collection.next_id(),
             original_collection.next_id()
@@ -313,7 +307,6 @@ mod tests {
                 index_type: "Flat".to_string(),
             },
             index: VectorIndexWrapper::Flat(FlatIndex::new(3, vec![])),
-            next_id: 0,
         };
         
         let json_data = serde_json::to_string_pretty(&invalid_data).unwrap();

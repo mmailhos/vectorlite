@@ -366,11 +366,6 @@ impl Collection {
         self.index.read().map_err(|_| "Failed to acquire read lock".to_string())
     }
 
-    /// Set the next_id value (used internally for persistence)
-    pub(crate) fn set_next_id(&self, next_id: u64) {
-        self.next_id.store(next_id, Ordering::Relaxed);
-    }
-
     /// Save the collection to a file
     ///
     /// This method saves the entire collection state to disk, including all vectors,
