@@ -50,13 +50,6 @@ POST /collections/{name}/save {"file_path": "./collection.vlc"}
 POST /collections/load {"file_path": "./collection.vlc", "collection_name": "restored"}
 ```
 
-### Features
-- **VLC Format**: Lightweight Vector Lite Collection (JSON-based) file format with versioning
-- **Full Collection State**: Saves complete index structure and metadata
-- **Cross-Platform**: Works across different operating systems
-- **Version Control**: Built-in version checking for compatibility
-- **CLI Support**: Load collections on server startup with `--filepath` option
-
 ## Index Types
 
 ### FlatIndex
