@@ -198,10 +198,6 @@ impl VectorIndex for HNSWIndex {
         Ok(())
     }
     fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult> {
-        // HNSW searches for k*2 candidates to improve accuracy in approximate search.
-        // This compensates for the graph structure limitations and ensures we find
-        // the best k results after recalculating with the requested similarity metric.
-        
         if query.len() != self.dim {
             eprintln!("Warning: Query dimension mismatch. Expected {}, got {}. Returning empty results.", self.dim, query.len());
             return Vec::new();
@@ -214,8 +210,10 @@ impl VectorIndex for HNSWIndex {
         let query_vec = query.to_vec();
         
         let mut searcher: Searcher<u64> = Searcher::new();
+        // HNSW searches for k*2 candidates to improve accuracy in approximate search.
+        // This compensates for the graph structure limitations and ensures we find
+        // the best k results after recalculating with the requested similarity metric.
         let max_candidates = std::cmp::min(k * 2, self.vectors.len());
-        
         if max_candidates == 0 {
             return Vec::new();
         }
