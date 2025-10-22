@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/vectorlite/badge.svg)](https://docs.rs/vectorlite)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
-[![Tests](https://github.com/mmailhos/vectorlite/workflows/Rust/badge.svg)](https://github.com/mmailhos/vectorlite/actions)
+[![Tests](https://github.com/mmailhos/vectorlite/workflows/Rust/badge.svg?branch=main)](https://github.com/mmailhos/vectorlite/actions)
 
 A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
 
@@ -13,20 +13,20 @@ A high-performance, in-memory vector database optimized for AI agent workloads w
 VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for:
 
 - **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
-- **Real-time Search**: Sub-millisecond response requirements  
+- **Real-time Search**: Sub-millisecond response requirements for pre-computed embeddings
 - **Prototype Development**: Rapid iteration without infrastructure complexity
 - **Single-tenant Applications**: No multi-tenancy isolation requirements
 
 ### Key Features
 - **In-memory storage** for zero-latency access patterns
-- **Native Rust ML models** using Candle framework with pluggable architecture. Bring your own embedding model (default to all-MiniLM-L6-v2)
+- **Native Rust ML models** using [Candle](https://github.com/huggingface/candle) framework with pluggable architecture. Bring your own embedding model (default to [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2))
 - **Thread-safe concurrency** with RwLock per collection and atomic ID generation
 - **HNSW indexing** for approximate nearest neighbor search with configurable accuracy
 - **Collection persistence** with vector lite collection (VLC) file format for saving/loading collections
 
 ## HTTP API
 
-RESTful interface optimized for AI agent integration:
+Presentation of the RESTful interface. 
 
 ```bash
 # Health check
@@ -52,12 +52,12 @@ POST /collections/load {"file_path": "./collection.vlc", "collection_name": "res
 
 ## Index Types
 
-### FlatIndex
+### Flat
 - **Complexity**: O(n) search, O(1) insert
 - **Memory**: Linear with dataset size
 - **Use Case**: Small datasets (< 10K vectors) or exact search requirements
 
-### HNSWIndex
+### HNSW
 - **Complexity**: O(log n) search, O(log n) insert
 - **Memory**: ~2-3x vector size due to graph structure
 - **Use Case**: Large datasets with approximate search tolerance
