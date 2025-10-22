@@ -97,6 +97,9 @@ pub struct HNSWIndex {
 
 impl HNSWIndex {
     pub fn new(dim: usize) -> Self {
+        if dim == 0 {
+            panic!("HNSW index dimension cannot be 0");
+        }
         let hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0> = Hnsw::new(Euclidean);
         let searcher = Searcher::new();
         Self { 
@@ -146,6 +149,11 @@ impl<'de> Deserialize<'de> for HNSWIndex {
             new_index_to_id.insert(internal_index, *id);
         }
         
+        // Verify that the HNSW index was created with the correct dimension
+        if data.dim == 0 {
+            return Err(serde::de::Error::custom("Invalid dimension: cannot be 0"));
+        }
+        
         Ok(HNSWIndex {
             hnsw,
             searcher,
@@ -160,7 +168,7 @@ impl<'de> Deserialize<'de> for HNSWIndex {
 impl VectorIndex for HNSWIndex {
     fn add(&mut self, vector: Vector) -> Result<(), String> {
         if vector.values.len() != self.dim {
-            return Err("Vector dimension mismatch".to_string());
+            return Err(format!("Vector dimension mismatch: expected {}, got {}", self.dim, vector.values.len()));
         }
         
         if self.id_to_index.contains_key(&vector.id) {
@@ -190,17 +198,35 @@ impl VectorIndex for HNSWIndex {
         Ok(())
     }
     fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult> {
-        let mut searcher = Searcher::new();
+        if query.len() != self.dim {
+            eprintln!("Warning: Query dimension mismatch. Expected {}, got {}. Returning empty results.", self.dim, query.len());
+            return Vec::new();
+        }
+        
+        if self.vectors.is_empty() {
+            return Vec::new();
+        }
+        
+        let query_vec = query.to_vec();
+        
+        let mut searcher: Searcher<u64> = Searcher::new();
+        // HNSW searches for k*2 candidates to improve accuracy in approximate search.
+        // This compensates for the graph structure limitations and ensures we find
+        // the best k results after recalculating with the requested similarity metric.
+        let max_candidates = std::cmp::min(k * 2, self.vectors.len());
+        if max_candidates == 0 {
+            return Vec::new();
+        }
+        
         let mut neighbors = vec![
             Neighbor {
                 index: !0,
                 distance: !0,
             };
-            k * 2
+            max_candidates
         ];
         
-        let query_vec = query.to_vec();
-        let results = self.hnsw.nearest(&query_vec, k * 2, &mut searcher, &mut neighbors);
+        let results = self.hnsw.nearest(&query_vec, max_candidates, &mut searcher, &mut neighbors);
         
         // Get candidate vectors and recalculate with the requested similarity metric
         let mut search_results: Vec<SearchResult> = results.iter()
@@ -483,5 +509,37 @@ fn test_empty_hnsw_serialization_deserialization() {
     assert!(deserialized.add(vector).is_ok());
     assert_eq!(deserialized.len(), 1);
     assert!(!deserialized.is_empty());
+}
+
+#[test]
+fn test_search_with_limited_vectors() {
+    let mut hnsw = HNSWIndex::new(3);
+    
+    // Add only 3 vectors
+    let vectors = vec![
+        Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
+        Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
+        Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
+    ];
+    
+    for vector in vectors {
+        assert!(hnsw.add(vector).is_ok());
+    }
+    
+    assert_eq!(hnsw.len(), 3);
+    
+    // Test searching for k=4 (more than we have vectors)
+    // This should not panic and should return at most 3 results
+    let query = vec![1.1, 0.1, 0.1];
+    let results = hnsw.search(&query, 4, SimilarityMetric::Euclidean);
+    
+    // Should return at most 3 results (all available vectors)
+    assert!(results.len() <= 3);
+    assert!(!results.is_empty());
+    
+    // Results should be sorted by score (highest first)
+    for i in 1..results.len() {
+        assert!(results[i-1].score >= results[i].score);
+    }
 }
 
