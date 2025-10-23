@@ -45,22 +45,19 @@ cargo run --bin vectorlite -- --filepath ./my_collection.vlc --port 3001
 
 ### Run with Docker
 
+With default settings:
 ```bash
-# with default HNSW parameters and all-MiniLM-L6-v2
 docker build -t vectorlite .
 docker run -p 3001:3001 vectorlite
 ```
 
-**Using custom models with Docker:**
 
+With a different embeddings model and memory-optimized HNSW:
 ```bash
-# Build with a custom model (automatically detects custom model)
 docker build \
-  --build-arg MODEL_NAME="sentence-transformers/all-mpnet-base-v2" \
-  -t vectorlite-custom .
-
-# Run with the custom model
-docker run -p 3001:3001 vectorlite-custom
+  --build-arg MODEL_NAME="sentence-transformers/paraphrase-MiniLM-L3-v2" \
+  --build-arg FEATURES="memory-optimized" \
+  -t vectorlite-small .
 ```
 
 ## HTTP API Overview
@@ -138,7 +135,7 @@ Run tests with mock embeddings (CI-friendly, no model files required):
 cargo test --features mock-embeddings
 ```
 
-Run tests with real ML models (requires downloaded models into `./models/`):
+Run tests with local models:
 ```bash
 cargo test
 ```
@@ -150,25 +147,21 @@ This downloads the BERT-based embedding model files needed for real embedding ge
 huggingface-cli download sentence-transformers/all-MiniLM-L6-v2 --local-dir models/all-MiniLM-L6-v2
 ```
 
-### Using Custom Models
+The model files must be present in the `./models/{model-name}/` directory with the required files:
+- `config.json`
+- `pytorch_model.bin` 
+- `tokenizer.json`
+
+
+### Using a different model
 
 You can override the default embedding model at compile time using the `custom-model` feature:
 
 ```bash
-# Build with a custom model
-DEFAULT_EMBEDDING_MODEL="sentence-transformers/all-mpnet-base-v2" cargo build --features custom-model
+DEFAULT_EMBEDDING_MODEL="sentence-transformers/paraphrase-MiniLM-L3-v2" cargo build --features custom-model
 
-# Download the custom model first
-huggingface-cli download sentence-transformers/all-mpnet-base-v2 --local-dir models/all-mpnet-base-v2
-
-# Run with the custom model
-DEFAULT_EMBEDDING_MODEL="sentence-transformers/all-mpnet-base-v2" cargo run --features custom-model
+DEFAULT_EMBEDDING_MODEL="sentence-transformers/paraphrase-MiniLM-L3-v2" cargo run --features custom-model
 ```
-
-**Note**: The model files must be present in the `./models/{model-name}/` directory with the required files:
-- `config.json`
-- `pytorch_model.bin` 
-- `tokenizer.json`
 
 ## License
 

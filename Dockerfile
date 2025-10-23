@@ -20,7 +20,7 @@ RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Build dependencies first (this layer will be cached if Cargo.toml doesn't change)
 RUN if [ "$MODEL_NAME" != "$DEFAULT_MODEL" ]; then \
-        cargo build --release --features "${FEATURES},custom-model" --build-arg DEFAULT_EMBEDDING_MODEL="${MODEL_NAME}"; \
+        DEFAULT_EMBEDDING_MODEL="$(basename ${MODEL_NAME})" cargo build --release --features "${FEATURES},custom-model"; \
     else \
         cargo build --release --features "${FEATURES}"; \
     fi && rm -rf src
@@ -28,7 +28,7 @@ RUN if [ "$MODEL_NAME" != "$DEFAULT_MODEL" ]; then \
 COPY src ./src
 
 RUN if [ "$MODEL_NAME" != "$DEFAULT_MODEL" ]; then \
-        DEFAULT_EMBEDDING_MODEL="${MODEL_NAME}" cargo build --release --features "${FEATURES},custom-model"; \
+        DEFAULT_EMBEDDING_MODEL="$(basename ${MODEL_NAME})" cargo build --release --features "${FEATURES},custom-model"; \
     else \
         cargo build --release --features "${FEATURES}"; \
     fi
