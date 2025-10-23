@@ -6,71 +6,97 @@
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Tests](https://github.com/mmailhos/vectorlite/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/mmailhos/vectorlite/actions)
 
-A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
+**A tiny, in-process Rust vector store with built-in embeddings for sub-millisecond semantic search.**
 
-## Overview
+VectorLite is a high-performance, **in-memory vector database** optimized for **AI agent** and **edge** workloads.  
+It co-locates model inference (via [Candle](https://github.com/huggingface/candle)) with a low-latency vector index, making it ideal for **session-scoped**, **single-instance**, or **privacy-sensitive** environments.
 
-VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for:
+## Why VectorLite?
+| Feature | Description |
+|----------|-------------|
+| **Sub-millisecond search** | In-memory HNSW or flat search tuned for real-time agent loops. |
+| **Built-in embeddings** | Runs [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) locally using Candle, or any other model of your choice. No external API calls. |
+| **Single-binary simplicity** | No dependencies, no servers to orchestrate. Start instantly via CLI or Docker. |
+| **Session-scoped collections** | Perfect for ephemeral agent sessions or sidecars |
+| **Thread-safe concurrency** | RwLock-based access and atomic ID generation for multi-threaded workloads. |
+| **Instant persistence** | Save or restore collections snapshots in one call. |
 
-- **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
-- **Real-time Search**: Sub-millisecond response requirements for pre-computed embeddings
-- **Prototype Development**: Rapid iteration without infrastructure complexity
-- **Single-tenant Applications**: No multi-tenancy isolation requirements
+VectorLite trades distributed scalability for deterministic performance, perfect for use cases where latency mattters more than millions of vectors.
 
-### Key Features
-- **In-memory storage** for zero-latency access patterns
-- **Native Rust ML models** using [Candle](https://github.com/huggingface/candle) framework with pluggable architecture. Bring your own embedding model (default to [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2))
-- **Thread-safe concurrency** with RwLock per collection and atomic ID generation
-- **HNSW indexing** for approximate nearest neighbor search with configurable accuracy
-- **Collection persistence** with vector lite collection (VLC) file format for saving/loading collections
+## When to Use It
 
-## HTTP API
+| Scenario | Why VectorLite fits |
+|-----------|--------------------|
+| **AI agent sessions** | Keep short-lived embeddings per conversation. No network latency. |
+| **Edge or embedded AI** | Run fully offline with model + index in one binary. |
+| **Realtime search / personalization** | Sub-ms search for pre-computed embeddings. |
+| **Local prototyping & CI** | Rust-native, no external services. |
+| **Single-tenant microservices** | Lightweight sidecar for semantic capabilities. |
 
-Presentation of the RESTful interface. 
+## Quick Start
 
+### Run from Source
 ```bash
-# Health check
-GET /health
+cargo run --bin vectorlite -- --port 3001
 
-# Collection management
-GET /collections
-POST /collections {"name": "docs", "index_type": "hnsw"}
-DELETE /collections/{name}
-
-# Vector operations
-POST /collections/{name}/text {"text": "Hello world"}
-POST /collections/{name}/vector {"id": 1, "values": [0.1, 0.2, ...]}
-POST /collections/{name}/search/text {"query": "hello", "k": 10}
-POST /collections/{name}/search/vector {"query": [0.1, 0.2, ...], "k": 10}
-GET /collections/{name}/vectors/{id}
-DELETE /collections/{name}/vectors/{id}
-
-# Persistence operations
-POST /collections/{name}/save {"file_path": "./collection.vlc"}
-POST /collections/load {"file_path": "./collection.vlc", "collection_name": "restored"}
+# Start with preloaded collection
+cargo run --bin vectorlite -- --filepath ./my_collection.vlc --port 3001
 ```
+
+### Run with Docker
+
+With default settings:
+```bash
+docker build -t vectorlite .
+docker run -p 3001:3001 vectorlite
+```
+
+
+With a different embeddings model and memory-optimized HNSW:
+```bash
+docker build \
+  --build-arg MODEL_NAME="sentence-transformers/paraphrase-MiniLM-L3-v2" \
+  --build-arg FEATURES="memory-optimized" \
+  -t vectorlite-small .
+```
+
+## HTTP API Overview
+| Operation             | Method & Endpoint                         | Body                                                               |
+| --------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
+| **Health**            | `GET /health`                             | –                                                                  |
+| **List collections**  | `GET /collections`                        | –                                                                  |
+| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw"}`                           |
+| **Delete collection** | `DELETE /collections/{name}`              | –                                                                  |
+| **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world"}`                                          |
+| **Add vector**        | `POST /collections/{name}/vector`         | `{"id": 1, "values": [0.1, 0.2, ...]}`                             |
+| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`                                       |
+| **Search (vector)**   | `POST /collections/{name}/search/vector`  | `{"query": [0.1, 0.2, ...], "k": 5}`                               |
+| **Get vector**        | `GET /collections/{name}/vectors/{id}`    | –                                                                  |
+| **Delete vector**     | `DELETE /collections/{name}/vectors/{id}` | –                                                                  |
+| **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |
+| **Load collection**   | `POST /collections/load`                  | `{"file_path": "./collection.vlc", "collection_name": "restored"}` |
 
 ## Index Types
 
-### Flat
-- **Complexity**: O(n) search, O(1) insert
-- **Memory**: Linear with dataset size
-- **Use Case**: Small datasets (< 10K vectors) or exact search requirements
+| Index    | Search Complexity | Insert   | Use Case                              |
+| -------- | ----------------- | -------- | ------------------------------------- |
+| **Flat** | O(n)              | O(1)     | Small datasets (<10K) or exact search |
+| **HNSW** | O(log n)          | O(log n) | Larger datasets or approximate search |
 
-### HNSW
-- **Complexity**: O(log n) search, O(log n) insert
-- **Memory**: ~2-3x vector size due to graph structure
-- **Use Case**: Large datasets with approximate search tolerance
+See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320).
 
-See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320) paper for details.
+### Configuration profiles for HNSW
 
-## ML Model Integration
+| Profile              | Features                         | Use Case                       |
+| -------------------- | -------------------------------- | ------------------------------ |
+| **default**          | balanced                         | general workloads              |
+| **memory-optimized** | reduced precision, smaller graph | constrained devices            |
+| **high-accuracy**    | higher recall, more memory       | offline re-ranking or research |
 
-### Built-in Embedding Models
-- **all-MiniLM-L6-v2**: Default 384-dimensional model for general-purpose text
-- **Candle Framework**: Native Rust ML inference with CPU/GPU acceleration
-- **Pluggable Architecture**: Easy integration of custom embedding models
-- **Memory Efficient**: Models loaded once and shared across requests
+```bash
+cargo build --features memory-optimized
+```
+
 
 ### Similarity Metrics
 - **Cosine**: Default for normalized embeddings, scale-invariant
@@ -78,76 +104,28 @@ See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320) paper
 - **Manhattan**: L1 norm, robust to outliers
 - **Dot Product**: Raw similarity, requires consistent vector scaling
 
-## Configuration Profiles
 
-```bash
-# Balanced (default)
-cargo build
-
-# Memory-constrained environments
-cargo build --features memory-optimized
-
-# High-precision search
-cargo build --features high-accuracy
-```
-
-
-## Getting Started
+## Rust SDK Example
 
 ```rust
 use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 
-// Create client with embedding function
-let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-
-// Create collection
-client.create_collection("documents", IndexType::HNSW)?;
-
-// Add text (auto-generates embedding and ID)
-let id = client.add_text_to_collection("documents", "Hello world")?;
-
-// Search
-let results = client.search_text_in_collection(
-    "documents", 
-    "hello", 
-    5, 
-    SimilarityMetric::Cosine
-)?;
-```
-
-## HTTP Server Example
-
-```rust
-use vectorlite::{VectorLiteClient, EmbeddingGenerator, start_server};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-    start_server(client, "127.0.0.1", 3000).await?;
+
+    client.create_collection("documents", IndexType::HNSW)?;
+    let id = client.add_text_to_collection("documents", "Hello world")?;
+
+    let results = client.search_text_in_collection(
+        "documents",
+        "hello",
+        5,
+        SimilarityMetric::Cosine,
+    )?;
+
+    println!("{:?}", results);
     Ok(())
 }
-```
-
-### CLI Usage
-
-Start the server with optional collection loading:
-
-```bash
-# Start empty server
-cargo run --bin vectorlite -- --port 3002
-
-# Start with pre-loaded collection
-cargo run --bin vectorlite -- --filepath ./my_collection.vlc --port 3002
-```
-
-## Docker
-
-### Quick Start with Docker
-
-```bash
-# with default HNSW parameters and all-MiniLM-L6-v2
-docker build -t vectorlite .
-docker run -p 3001:3001 vectorlite
 ```
 
 ## Testing
@@ -157,7 +135,7 @@ Run tests with mock embeddings (CI-friendly, no model files required):
 cargo test --features mock-embeddings
 ```
 
-Run tests with real ML models (requires downloaded models):
+Run tests with local models:
 ```bash
 cargo test
 ```
@@ -167,6 +145,22 @@ cargo test
 This downloads the BERT-based embedding model files needed for real embedding generation:
 ```bash
 huggingface-cli download sentence-transformers/all-MiniLM-L6-v2 --local-dir models/all-MiniLM-L6-v2
+```
+
+The model files must be present in the `./models/{model-name}/` directory with the required files:
+- `config.json`
+- `pytorch_model.bin` 
+- `tokenizer.json`
+
+
+### Using a different model
+
+You can override the default embedding model at compile time using the `custom-model` feature:
+
+```bash
+DEFAULT_EMBEDDING_MODEL="sentence-transformers/paraphrase-MiniLM-L3-v2" cargo build --features custom-model
+
+DEFAULT_EMBEDDING_MODEL="sentence-transformers/paraphrase-MiniLM-L3-v2" cargo run --features custom-model
 ```
 
 ## License

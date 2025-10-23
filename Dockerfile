@@ -5,6 +5,7 @@ RUN rustup toolchain install nightly && rustup default nightly
 
 ARG MODEL_NAME=sentence-transformers/all-MiniLM-L6-v2
 ARG FEATURES=""
+ARG DEFAULT_MODEL=sentence-transformers/all-MiniLM-L6-v2
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
@@ -18,11 +19,19 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 # Build dependencies first (this layer will be cached if Cargo.toml doesn't change)
-RUN cargo build --release --features "${FEATURES}" && rm -rf src
+RUN if [ "$MODEL_NAME" != "$DEFAULT_MODEL" ]; then \
+        DEFAULT_EMBEDDING_MODEL="$(basename ${MODEL_NAME})" cargo build --release --features "${FEATURES},custom-model"; \
+    else \
+        cargo build --release --features "${FEATURES}"; \
+    fi && rm -rf src
 
 COPY src ./src
 
-RUN cargo build --release --features "${FEATURES}"
+RUN if [ "$MODEL_NAME" != "$DEFAULT_MODEL" ]; then \
+        DEFAULT_EMBEDDING_MODEL="$(basename ${MODEL_NAME})" cargo build --release --features "${FEATURES},custom-model"; \
+    else \
+        cargo build --release --features "${FEATURES}"; \
+    fi
 
 FROM python:3.11-slim AS model-downloader
 
