@@ -140,6 +140,16 @@ cargo run --bin vectorlite -- --port 3002
 cargo run --bin vectorlite -- --filepath ./my_collection.vlc --port 3002
 ```
 
+## Docker
+
+### Quick Start with Docker
+
+```bash
+# with default HNSW parameters and all-MiniLM-L6-v2
+docker build -t vectorlite .
+docker run -p 3001:3001 vectorlite
+```
+
 ## Testing
 
 Run tests with mock embeddings (CI-friendly, no model files required):
