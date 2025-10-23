@@ -1,0 +1,56 @@
+# Git
+.git
+.gitignore
+
+# Rust
+target/
+
+# Documentation
+*.md
+docs/
+
+# Examples and demos
+examples/
+demo/
+benches/
+scripts/
+
+# Tests
+tests/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+
+# Coverage reports
+coverage/
+*.gcov
+*.gcno
+*.gcda
+
+# Benchmark results
+criterion/
+target/criterion/
+
+# Package files
+*.crate
+target/package/
