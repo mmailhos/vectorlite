@@ -33,7 +33,11 @@ use candle_core::{Device, Tensor, DType, IndexOp};
 use candle_transformers::models::bert::{BertModel, Config};
 use tokenizers::Tokenizer;
 
+#[cfg(not(feature = "custom-model"))]
 const DEFAULT_EMBEDDING_MODEL: &str = "all-MiniLM-L6-v2";
+
+#[cfg(feature = "custom-model")]
+const DEFAULT_EMBEDDING_MODEL: &str = env!("DEFAULT_EMBEDDING_MODEL");
 
 /// Errors that can occur during embedding generation
 ///

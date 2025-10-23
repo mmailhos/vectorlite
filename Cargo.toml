@@ -19,6 +19,7 @@ memory-optimized = []
 high-accuracy = []
 docsrs = []
 mock-embeddings = []
+custom-model = []
 
 [dependencies]
 clap = { version = "4.5.48", features = ["derive"] }
