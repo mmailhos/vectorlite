@@ -380,7 +380,7 @@ impl Collection {
 
     pub fn get_vector(&self, id: u64) -> VectorLiteResult<Option<Vector>> {
         let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_vector".to_string()))?;
-        Ok(index.get_vector(id).cloned())
+        Ok(index.get_vector(id))
     }
 
     pub fn get_info(&self) -> VectorLiteResult<CollectionInfo> {

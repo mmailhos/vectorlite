@@ -233,7 +233,7 @@ pub trait VectorIndex {
     fn is_empty(&self) -> bool;
     
     /// Get a vector by its ID
-    fn get_vector(&self, id: u64) -> Option<&Vector>;
+    fn get_vector(&self, id: u64) -> Option<Vector>;
     
     /// Get the dimension of vectors in this index
     fn dimension(&self) -> usize;
@@ -306,7 +306,7 @@ impl VectorIndex for VectorIndexWrapper {
         }
     }
 
-    fn get_vector(&self, id: u64) -> Option<&Vector> {
+    fn get_vector(&self, id: u64) -> Option<Vector> {
         match self {
             VectorIndexWrapper::Flat(index) => index.get_vector(id),
             VectorIndexWrapper::HNSW(index) => index.get_vector(id),

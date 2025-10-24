@@ -119,8 +119,8 @@ impl VectorIndex for FlatIndex {
         self.data.is_empty()
     }
     
-    fn get_vector(&self, id: u64) -> Option<&Vector> {
-        self.data.iter().find(|e| e.id == id)
+    fn get_vector(&self, id: u64) -> Option<Vector> {
+        self.data.iter().find(|e| e.id == id).cloned()
     }
     
     fn dimension(&self) -> usize {

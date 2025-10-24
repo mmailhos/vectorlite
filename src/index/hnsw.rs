@@ -46,6 +46,13 @@ use serde::{Deserialize, Serialize, Deserializer};
 use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
+
+// Separate structure for metadata only - no embedding values
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VectorMetadata {
+    text: String,
+    metadata: Option<serde_json::Value>,
+}
 #[derive(Default, Clone)]
 struct Euclidean;
 
@@ -91,8 +98,11 @@ pub struct HNSWIndex {
     id_to_index: HashMap<u64, usize>,
     // Mapping from internal HNSW index to custom ID
     index_to_id: HashMap<usize, u64>,
-    // Store vectors for retrieval by ID. 
-    vectors: HashMap<u64, Vector>,
+    // Store only metadata (text + JSON), not the full Vector
+    metadata: HashMap<u64, VectorMetadata>,
+    // Store vector values separately for similarity calculations
+    // This is still more memory efficient than storing full Vector structs
+    vector_values: HashMap<u64, Vec<f64>>,
 }
 
 impl HNSWIndex {
@@ -108,13 +118,14 @@ impl HNSWIndex {
             dim,
             id_to_index: HashMap::new(),
             index_to_id: HashMap::new(),
-            vectors: HashMap::new(),
+            metadata: HashMap::new(),
+            vector_values: HashMap::new(),
         }
     }
 
     /// Get the maximum ID from the stored vectors
     pub fn max_id(&self) -> Option<u64> {
-        self.vectors.keys().max().copied()
+        self.metadata.keys().max().copied()
     }
 }
 
@@ -126,7 +137,8 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         #[derive(Deserialize)]
         struct Temp {
             dim: usize,
-            vectors: HashMap<u64, Vector>,
+            metadata: HashMap<u64, VectorMetadata>,
+            vector_values: HashMap<u64, Vec<f64>>,
         }
         
         let data = Temp::deserialize(deserializer)?;
@@ -137,14 +149,14 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         let mut new_id_to_index = HashMap::new();
         let mut new_index_to_id = HashMap::new();
         
-        for (id, vector) in &data.vectors {
-            if vector.values.len() != data.dim {
+        for (id, values) in &data.vector_values {
+            if values.len() != data.dim {
                 return Err(serde::de::Error::custom(format!(
                     "Vector dimension mismatch: expected {}, got {}", 
-                    data.dim, vector.values.len()
+                    data.dim, values.len()
                 )));
             }
-            let internal_index = hnsw.insert(vector.values.clone(), &mut searcher);
+            let internal_index = hnsw.insert(values.clone(), &mut searcher);
             new_id_to_index.insert(*id, internal_index);
             new_index_to_id.insert(internal_index, *id);
         }
@@ -160,7 +172,8 @@ impl<'de> Deserialize<'de> for HNSWIndex {
             dim: data.dim,
             id_to_index: new_id_to_index,
             index_to_id: new_index_to_id,
-            vectors: data.vectors,
+            metadata: data.metadata,
+            vector_values: data.vector_values,
         })
     }
 }
@@ -175,11 +188,19 @@ impl VectorIndex for HNSWIndex {
             return Err(format!("Vector ID {} already exists", vector.id));
         }
         
+        // Store the embedding in HNSW (takes ownership, no clone needed)
         let internal_index = self.hnsw.insert(vector.values.clone(), &mut self.searcher);
+        
+        // Store metadata and values separately
+        let vector_metadata = VectorMetadata {
+            text: vector.text,
+            metadata: vector.metadata,
+        };
         
         self.id_to_index.insert(vector.id, internal_index);
         self.index_to_id.insert(internal_index, vector.id);
-        self.vectors.insert(vector.id, vector);
+        self.metadata.insert(vector.id, vector_metadata);
+        self.vector_values.insert(vector.id, vector.values);
         
         Ok(())
     }
@@ -193,7 +214,8 @@ impl VectorIndex for HNSWIndex {
         //  Since HNSW doesn't support deletion, we just remove the reference to the node in the mapping
         self.id_to_index.remove(&id);
         self.index_to_id.remove(&internal_index);
-        self.vectors.remove(&id);
+        self.metadata.remove(&id);
+        self.vector_values.remove(&id);
         
         Ok(())
     }
@@ -203,7 +225,7 @@ impl VectorIndex for HNSWIndex {
             return Vec::new();
         }
         
-        if self.vectors.is_empty() {
+        if self.metadata.is_empty() {
             return Vec::new();
         }
         
@@ -213,7 +235,7 @@ impl VectorIndex for HNSWIndex {
         // HNSW searches for k*2 candidates to improve accuracy in approximate search.
         // This compensates for the graph structure limitations and ensures we find
         // the best k results after recalculating with the requested similarity metric.
-        let max_candidates = std::cmp::min(k * 2, self.vectors.len());
+        let max_candidates = std::cmp::min(k * 2, self.metadata.len());
         if max_candidates == 0 {
             return Vec::new();
         }
@@ -233,14 +255,16 @@ impl VectorIndex for HNSWIndex {
             .filter(|n| n.index != !0) // Filter out invalid results
             .filter_map(|n| {
                 self.index_to_id.get(&n.index).and_then(|&custom_id| {
-                    self.vectors.get(&custom_id).map(|vector| {
-                        let score = similarity_metric.calculate(&vector.values, query);
-                        SearchResult { 
-                            id: custom_id, 
-                            score,
-                            text: vector.text.clone(),
-                            metadata: vector.metadata.clone()
-                        }
+                    self.metadata.get(&custom_id).and_then(|meta| {
+                        self.vector_values.get(&custom_id).map(|values| {
+                            let score = similarity_metric.calculate(values, query);
+                            SearchResult { 
+                                id: custom_id, 
+                                score,
+                                text: meta.text.clone(),
+                                metadata: meta.metadata.clone()
+                            }
+                        })
                     })
                 })
             })
@@ -252,13 +276,22 @@ impl VectorIndex for HNSWIndex {
         search_results
     }
     fn len(&self) -> usize {
-        self.vectors.len()
+        self.metadata.len()
     }
     fn is_empty(&self) -> bool {
-        self.vectors.is_empty()
+        self.metadata.is_empty()
     }
-    fn get_vector(&self, id: u64) -> Option<&Vector> {
-        self.vectors.get(&id)
+    fn get_vector(&self, id: u64) -> Option<Vector> {
+        self.metadata.get(&id).and_then(|meta| {
+            self.vector_values.get(&id).map(|values| {
+                Vector {
+                    id,
+                    values: values.clone(),
+                    text: meta.text.clone(),
+                    metadata: meta.metadata.clone(),
+                }
+            })
+        })
     }
     fn dimension(&self) -> usize {
         self.dim
@@ -268,8 +301,8 @@ impl VectorIndex for HNSWIndex {
 impl Debug for HNSWIndex {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HNSWIndex")
-            .field("len", &self.vectors.len())
-            .field("is_empty", &self.vectors.is_empty())
+            .field("len", &self.metadata.len())
+            .field("is_empty", &self.metadata.is_empty())
             .field("dimension", &self.dim)
             .finish()
     }
