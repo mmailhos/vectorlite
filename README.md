@@ -67,10 +67,8 @@ docker build \
 | **List collections**  | `GET /collections`                        | –                                                                  |
 | **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw"}`                           |
 | **Delete collection** | `DELETE /collections/{name}`              | –                                                                  |
-| **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world"}`                                          |
-| **Add vector**        | `POST /collections/{name}/vector`         | `{"id": 1, "values": [0.1, 0.2, ...]}`                             |
+| **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world", "metadata": {...}}`|
 | **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`                                       |
-| **Search (vector)**   | `POST /collections/{name}/search/vector`  | `{"query": [0.1, 0.2, ...], "k": 5}`                               |
 | **Get vector**        | `GET /collections/{name}/vectors/{id}`    | –                                                                  |
 | **Delete vector**     | `DELETE /collections/{name}/vectors/{id}` | –                                                                  |
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |
@@ -104,26 +102,38 @@ cargo build --features memory-optimized
 - **Manhattan**: L1 norm, robust to outliers
 - **Dot Product**: Raw similarity, requires consistent vector scaling
 
-
 ## Rust SDK Example
 
-```rust
+```rust,no_run
 use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
+use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 
-    client.create_collection("documents", IndexType::HNSW)?;
-    let id = client.add_text_to_collection("documents", "Hello world")?;
+    client.create_collection("quotes", IndexType::HNSW)?;
+    
+    let id = client.add_text_to_collection(
+        "quotes", 
+        "I just want to lie on the beach and eat hot dogs",
+        Some(json!({
+            "author": "Kevin Malone",
+            "tags": ["the-office", "s3:e23"],
+            "year": 2005,
+        }))
+    )?;
 
     let results = client.search_text_in_collection(
-        "documents",
-        "hello",
-        5,
+        "quotes",
+        "beach games",
+        3,
         SimilarityMetric::Cosine,
     )?;
 
-    println!("{:?}", results);
+    for result in &results {
+        println!("ID: {}, Score: {:.4}", result.id, result.score);
+    }
+
     Ok(())
 }
 ```

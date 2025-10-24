@@ -15,10 +15,8 @@
 //! - `DELETE /collections/{name}` - Delete a collection
 //!
 //! ## Vector Operations
-//! - `POST /collections/{name}/text` - Add text (auto-generates embedding)
-//! - `POST /collections/{name}/vector` - Add raw vector
+//! - `POST /collections/{name}/text` - Add text (auto-generates embedding, optional metadata)
 //! - `POST /collections/{name}/search/text` - Search by text
-//! - `POST /collections/{name}/search/vector` - Search by vector
 //! - `GET /collections/{name}/vectors/{id}` - Get vector by ID
 //! - `DELETE /collections/{name}/vectors/{id}` - Delete vector by ID
 //!
@@ -67,7 +65,7 @@ use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing::{info, error};
 
-use crate::{VectorLiteClient, Vector, SearchResult, SimilarityMetric, IndexType};
+use crate::{VectorLiteClient, SearchResult, SimilarityMetric, IndexType};
 use crate::errors::{VectorLiteError, VectorLiteResult};
 
 // Request/Response types
@@ -79,30 +77,20 @@ pub struct CreateCollectionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateCollectionResponse {
-    pub message: String,
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct AddTextRequest {
     pub text: String,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct AddTextResponse {
     pub id: Option<u64>,
-    pub message: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct AddVectorRequest {
-    pub id: u64,
-    pub values: Vec<f64>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AddVectorResponse {
-    pub message: String,
-}
 
 #[derive(Debug, Deserialize)]
 pub struct SearchTextRequest {
@@ -111,23 +99,15 @@ pub struct SearchTextRequest {
     pub similarity_metric: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SearchVectorRequest {
-    pub query: Vec<f64>,
-    pub k: Option<usize>,
-    pub similarity_metric: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 pub struct SearchResponse {
     pub results: Option<Vec<SearchResult>>,
-    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CollectionInfoResponse {
     pub info: Option<crate::client::CollectionInfo>,
-    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -147,7 +127,6 @@ pub struct SaveCollectionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct SaveCollectionResponse {
-    pub message: String,
     pub file_path: Option<String>,
 }
 
@@ -159,7 +138,6 @@ pub struct LoadCollectionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct LoadCollectionResponse {
-    pub message: String,
     pub collection_name: Option<String>,
 }
 
@@ -219,7 +197,7 @@ async fn create_collection(
         Ok(_) => {
             info!("Created collection: {}", payload.name);
             Ok(Json(CreateCollectionResponse {
-                message: format!("Collection '{}' created successfully", payload.name),
+                name: payload.name,
             }))
         }
         Err(e) => {
@@ -237,7 +215,6 @@ async fn get_collection_info(
     match client.get_collection_info(&collection_name) {
         Ok(info) => Ok(Json(CollectionInfoResponse {
             info: Some(info),
-            message: "Collection info retrieved successfully".to_string(),
         })),
         Err(e) => Err(e.status_code()),
     }
@@ -252,7 +229,7 @@ async fn delete_collection(
         Ok(_) => {
             info!("Deleted collection: {}", collection_name);
             Ok(Json(CreateCollectionResponse {
-                message: format!("Collection '{}' deleted successfully", collection_name),
+                name: collection_name,
             }))
         }
         Err(e) => Err(e.status_code()),
@@ -265,12 +242,11 @@ async fn add_text(
     Json(payload): Json<AddTextRequest>,
 ) -> Result<Json<AddTextResponse>, StatusCode> {
     let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.add_text_to_collection(&collection_name, &payload.text) {
+    match client.add_text_to_collection(&collection_name, &payload.text, payload.metadata) {
         Ok(id) => {
             info!("Added text to collection '{}' with ID: {}", collection_name, id);
             Ok(Json(AddTextResponse {
                 id: Some(id),
-                message: "Text added successfully".to_string(),
             }))
         }
         Err(e) => {
@@ -279,29 +255,7 @@ async fn add_text(
     }
 }
 
-async fn add_vector(
-    State(state): State<AppState>,
-    Path(collection_name): Path<String>,
-    Json(payload): Json<AddVectorRequest>,
-) -> Result<Json<AddVectorResponse>, StatusCode> {
-    let vector = Vector {
-        id: payload.id,
-        values: payload.values,
-    };
 
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.add_vector_to_collection(&collection_name, vector) {
-        Ok(_) => {
-            info!("Added vector to collection '{}' with ID: {}", collection_name, payload.id);
-            Ok(Json(AddVectorResponse {
-                message: "Vector added successfully".to_string(),
-            }))
-        }
-        Err(e) => {
-            Err(e.status_code())
-        }
-    }
-}
 
 async fn search_text(
     State(state): State<AppState>,
@@ -325,41 +279,12 @@ async fn search_text(
             info!("Search completed for collection '{}' with {} results", collection_name, results.len());
             Ok(Json(SearchResponse {
                 results: Some(results),
-                message: "Search completed successfully".to_string(),
             }))
         }
         Err(e) => Err(e.status_code()),
     }
 }
 
-async fn search_vector(
-    State(state): State<AppState>,
-    Path(collection_name): Path<String>,
-    Json(payload): Json<SearchVectorRequest>,
-) -> Result<Json<SearchResponse>, StatusCode> {
-    let k = payload.k.unwrap_or(10);
-    let similarity_metric = match payload.similarity_metric {
-        Some(metric) => match parse_similarity_metric(&metric) {
-            Ok(m) => m,
-            Err(e) => {
-                return Err(e.status_code());
-            }
-        },
-        None => SimilarityMetric::Cosine,
-    };
-
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.search_vector_in_collection(&collection_name, &payload.query, k, similarity_metric) {
-        Ok(results) => {
-            info!("Vector search completed for collection '{}' with {} results", collection_name, results.len());
-            Ok(Json(SearchResponse {
-                results: Some(results),
-                message: "Vector search completed successfully".to_string(),
-            }))
-        }
-        Err(e) => Err(e.status_code()),
-    }
-}
 
 async fn get_vector(
     State(state): State<AppState>,
@@ -369,8 +294,7 @@ async fn get_vector(
     match client.get_vector_from_collection(&collection_name, vector_id) {
         Ok(Some(vector)) => {
             Ok(Json(serde_json::json!({
-                "vector": vector,
-                "message": "Vector retrieved successfully"
+                "vector": vector
             })))
         }
         Ok(None) => {
@@ -390,9 +314,7 @@ async fn delete_vector(
     match client.delete_from_collection(&collection_name, vector_id) {
         Ok(_) => {
             info!("Deleted vector {} from collection '{}'", vector_id, collection_name);
-            Ok(Json(serde_json::json!({
-                "message": "Vector deleted successfully"
-            })))
+            Ok(Json(serde_json::json!({})))
         }
         Err(e) => {
             Err(e.status_code())
@@ -423,7 +345,6 @@ async fn save_collection(
         Ok(_) => {
             info!("Saved collection '{}' to file: {}", collection_name, payload.file_path);
             Ok(Json(SaveCollectionResponse {
-                message: format!("Collection '{}' saved successfully", collection_name),
                 file_path: Some(payload.file_path),
             }))
         }
@@ -445,10 +366,9 @@ async fn load_collection(
         Ok(collection) => collection,
         Err(e) => {
             // Check if it's a file not found error
-            if let crate::persistence::PersistenceError::Io(io_err) = &e {
-                if io_err.kind() == std::io::ErrorKind::NotFound {
-                    return Err(VectorLiteError::FileNotFound(format!("File not found: {}", payload.file_path)).status_code());
-                }
+            if let crate::persistence::PersistenceError::Io(io_err) = &e
+                && io_err.kind() == std::io::ErrorKind::NotFound {
+                return Err(VectorLiteError::FileNotFound(format!("File not found: {}", payload.file_path)).status_code());
             }
             return Err(VectorLiteError::from(e).status_code());
         }
@@ -475,13 +395,12 @@ async fn load_collection(
     let new_collection = crate::Collection::new(collection_name.clone(), index);
     
     // Add the collection to the client
-    if let Err(_) = client.add_collection(new_collection) {
+    if client.add_collection(new_collection).is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     
     info!("Loaded collection '{}' from file: {}", collection_name, payload.file_path);
     Ok(Json(LoadCollectionResponse {
-        message: format!("Collection '{}' loaded successfully", collection_name),
         collection_name: Some(collection_name),
     }))
 }
@@ -494,9 +413,7 @@ pub fn create_app(state: AppState) -> Router {
         .route("/collections/:name", get(get_collection_info))
         .route("/collections/:name", delete(delete_collection))
         .route("/collections/:name/text", post(add_text))
-        .route("/collections/:name/vector", post(add_vector))
         .route("/collections/:name/search/text", post(search_text))
-        .route("/collections/:name/search/vector", post(search_vector))
         .route("/collections/:name/vectors/:id", get(get_vector))
         .route("/collections/:name/vectors/:id", delete(delete_vector))
         .route("/collections/:name/save", post(save_collection))

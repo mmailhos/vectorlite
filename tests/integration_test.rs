@@ -26,6 +26,8 @@ pub fn load_test_dataset(path: &str, dimension: usize) -> Result<FlatIndex, io::
         let vector = Vector { 
             id: id_counter as u64,
             values: issue.embeddings,
+            text: issue.title.clone(),
+            metadata: None,
         };
         vector_store.add(vector).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     }

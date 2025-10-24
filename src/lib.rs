@@ -1,15 +1,32 @@
 //! # VectorLite
 //!
-//! A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
+//! **A tiny, in-process Rust vector store with built-in embeddings for sub-millisecond semantic search.**
 //!
-//! ## Overview
+//! VectorLite is a high-performance, **in-memory vector database** optimized for **AI agent** and **edge** workloads.  
+//! It co-locates model inference (via [Candle](https://github.com/huggingface/candle)) with a low-latency vector index, making it ideal for **session-scoped**, **single-instance**, or **privacy-sensitive** environments.
 //!
-//! VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for:
+//! ## Why VectorLite?
 //!
-//! - **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
-//! - **Real-time Search**: Sub-millisecond response requirements  
-//! - **Prototype Development**: Rapid iteration without infrastructure complexity
-//! - **Single-tenant Applications**: No multi-tenancy isolation requirements
+//! | Feature | Description |
+//! |----------|-------------|
+//! | **Sub-millisecond search** | In-memory HNSW or flat search tuned for real-time agent loops. |
+//! | **Built-in embeddings** | Runs [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) locally using Candle, or any other model of your choice. No external API calls. |
+//! | **Single-binary simplicity** | No dependencies, no servers to orchestrate. Start instantly via CLI or Docker. |
+//! | **Session-scoped collections** | Perfect for ephemeral agent sessions or sidecars |
+//! | **Thread-safe concurrency** | RwLock-based access and atomic ID generation for multi-threaded workloads. |
+//! | **Instant persistence** | Save or restore collections snapshots in one call. |
+//!
+//! VectorLite trades distributed scalability for deterministic performance, perfect for use cases where latency matters more than millions of vectors.
+//!
+//! ## When to Use It
+//!
+//! | Scenario | Why VectorLite fits |
+//! |-----------|--------------------|
+//! | **AI agent sessions** | Keep short-lived embeddings per conversation. No network latency. |
+//! | **Edge or embedded AI** | Run fully offline with model + index in one binary. |
+//! | **Realtime search / personalization** | Sub-ms search for pre-computed embeddings. |
+//! | **Local prototyping & CI** | Rust-native, no external services. |
+//! | **Single-tenant microservices** | Lightweight sidecar for semantic capabilities. |
 //!
 //! ## Key Features
 //!
@@ -21,28 +38,38 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust
+//! ```rust,no_run
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
+//! use serde_json::json;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create client with embedding function
-//! let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
-//! // Create collection
-//! client.create_collection("documents", IndexType::HNSW)?;
+//!     client.create_collection("quotes", IndexType::HNSW)?;
+//!     
+//!     let id = client.add_text_to_collection(
+//!         "quotes", 
+//!         "I just want to lie on the beach and eat hot dogs",
+//!         Some(json!({
+//!             "author": "Kevin Malone",
+//!             "tags": ["the-office", "s3:e23"],
+//!             "year": 2005,
+//!         }))
+//!     )?;
 //!
-//! // Add text (auto-generates embedding and ID)
-//! let id = client.add_text_to_collection("documents", "Hello world")?;
+//!     let results = client.search_text_in_collection(
+//!         "quotes",
+//!         "beach games",
+//!         3,
+//!         SimilarityMetric::Cosine,
+//!     )?;
 //!
-//! // Search
-//! let results = client.search_text_in_collection(
-//!     "documents", 
-//!     "hello", 
-//!     5, 
-//!     SimilarityMetric::Cosine
-//! )?;
-//! # Ok(())
-//! # }
+//!     for result in &results {
+//!         println!("ID: {}, Score: {:.4}, Text: {:?}", result.id, result.score, result.text);
+//!     }
+//!
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Index Types
@@ -109,16 +136,23 @@ use serde::{Serialize, Deserialize};
 /// Default vector dimension for embedding models
 pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 
-/// Represents a vector with an ID and floating-point values
+/// Represents a vector with an ID, floating-point values, and original text
 ///
 /// # Examples
 ///
 /// ```rust
 /// use vectorlite::Vector;
+/// use serde_json::json;
 ///
 /// let vector = Vector {
 ///     id: 1,
 ///     values: vec![0.1, 0.2, 0.3, 0.4],
+///     text: "Sample document text".to_string(),
+///     metadata: Some(json!({
+///         "title": "Sample Document",
+///         "category": "example",
+///         "tags": ["demo", "test"]
+///     })),
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,9 +161,14 @@ pub struct Vector {
     pub id: u64,
     /// The vector values (embedding coordinates)
     pub values: Vec<f64>,
+    /// The original text that was embedded to create this vector
+    pub text: String,
+    /// Optional metadata associated with the vector
+    /// Can contain arbitrary JSON data for flexible schema-less storage
+    pub metadata: Option<serde_json::Value>,
 }
 
-/// Search result containing a vector ID and similarity score
+/// Search result containing a vector ID, similarity score, original text, and optional metadata
 ///
 /// Results are typically sorted by score in descending order (highest similarity first).
 ///
@@ -137,10 +176,13 @@ pub struct Vector {
 ///
 /// ```rust
 /// use vectorlite::SearchResult;
+/// use serde_json::json;
 ///
 /// let result = SearchResult {
 ///     id: 42,
 ///     score: 0.95,
+///     text: "Document content text".to_string(),
+///     metadata: Some(json!({"title": "Document Title"})),
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +191,10 @@ pub struct SearchResult {
     pub id: u64,
     /// Similarity score (higher is more similar)
     pub score: f64,
+    /// The original text that was embedded to create this vector
+    pub text: String,
+    /// Optional metadata from the matching vector
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Trait for vector indexing implementations
@@ -163,7 +209,7 @@ pub struct SearchResult {
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = FlatIndex::new(3, Vec::new());
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None };
 /// 
 /// index.add(vector)?;
 /// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
@@ -208,7 +254,7 @@ pub trait VectorIndex {
 /// let mut wrapper = VectorIndexWrapper::Flat(FlatIndex::new(3, Vec::new()));
 /// 
 /// // Add a vector
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None };
 /// wrapper.add(vector)?;
 /// 
 /// // Search using the wrapper
@@ -599,8 +645,8 @@ mod tests {
     #[test]
     fn test_vector_store_creation() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 2.0, 3.0] },
-            Vector { id: 1, values: vec![4.0, 5.0, 6.0] },
+            Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: "test1".to_string(), metadata: None },
+            Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: "test2".to_string(), metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         assert_eq!(store.len(), 2);
@@ -610,9 +656,9 @@ mod tests {
     #[test]
     fn test_vector_store_search() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 0.0, 0.0] },
-            Vector { id: 1, values: vec![0.0, 1.0, 0.0] },
-            Vector { id: 2, values: vec![0.0, 0.0, 1.0] },
+            Vector { id: 0, values: vec![1.0, 0.0, 0.0], text: "test1".to_string(), metadata: None },
+            Vector { id: 1, values: vec![0.0, 1.0, 0.0], text: "test2".to_string(), metadata: None },
+            Vector { id: 2, values: vec![0.0, 0.0, 1.0], text: "test3".to_string(), metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
@@ -629,8 +675,8 @@ mod tests {
         
         // Test FlatIndex wrapper
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-            Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
+            Vector { id: 1, values: vec![1.0, 0.0, 0.0], text: "test1".to_string(), metadata: None },
+            Vector { id: 2, values: vec![0.0, 1.0, 0.0], text: "test2".to_string(), metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         let wrapper = VectorIndexWrapper::Flat(flat_index);
@@ -651,6 +697,55 @@ mod tests {
         let results = deserialized.search(&query, 1, SimilarityMetric::Cosine);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 1);
+    }
+
+    #[test]
+    fn test_vector_metadata_functionality() {
+        use serde_json::json;
+        
+        // Test vector with metadata
+        let metadata = json!({
+            "title": "Test Document",
+            "category": "example",
+            "tags": ["test", "metadata"],
+            "nested": {
+                "value": 42,
+                "enabled": true
+            }
+        });
+        
+        let vector = Vector {
+            id: 1,
+            values: vec![1.0, 2.0, 3.0],
+            text: "Test document text".to_string(),
+            metadata: Some(metadata.clone()),
+        };
+        
+        // Test that metadata is preserved
+        assert!(vector.metadata.is_some());
+        let stored_metadata = vector.metadata.as_ref().unwrap();
+        assert_eq!(stored_metadata["title"], "Test Document");
+        assert_eq!(stored_metadata["category"], "example");
+        assert_eq!(stored_metadata["nested"]["value"], 42);
+        assert_eq!(stored_metadata["nested"]["enabled"], true);
+        
+        // Test vector without metadata
+        let vector_no_metadata = Vector {
+            id: 2,
+            values: vec![4.0, 5.0, 6.0],
+            text: "Test text".to_string(),
+            metadata: None,
+        };
+        
+        assert!(vector_no_metadata.metadata.is_none());
+        
+        // Test serialization/deserialization with metadata
+        let serialized = serde_json::to_string(&vector).expect("Serialization should work");
+        let deserialized: Vector = serde_json::from_str(&serialized).expect("Deserialization should work");
+        
+        assert_eq!(deserialized.id, vector.id);
+        assert_eq!(deserialized.values, vector.values);
+        assert_eq!(deserialized.metadata, vector.metadata);
     }
 
 }

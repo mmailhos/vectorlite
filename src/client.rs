@@ -20,7 +20,7 @@
 //! client.create_collection("documents", IndexType::HNSW)?;
 //!
 //! // Add text (auto-generates embedding)
-//! let id = client.add_text_to_collection("documents", "Hello world")?;
+//! let id = client.add_text_to_collection("documents", "Hello world", None)?;
 //!
 //! // Search for similar text
 //! let results = client.search_text_in_collection(
@@ -121,19 +121,13 @@ impl VectorLiteClient {
         self.collections.contains_key(name)
     }
 
-    pub fn add_text_to_collection(&self, collection_name: &str, text: &str) -> VectorLiteResult<u64> {
+    pub fn add_text_to_collection(&self, collection_name: &str, text: &str, metadata: Option<serde_json::Value>) -> VectorLiteResult<u64> {
         let collection = self.collections.get(collection_name)
             .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
-        collection.add_text(text, self.embedding_function.as_ref())
+        collection.add_text_with_metadata(text, metadata, self.embedding_function.as_ref())
     }
 
-    pub fn add_vector_to_collection(&self, collection_name: &str, vector: Vector) -> VectorLiteResult<()> {
-        let collection = self.collections.get(collection_name)
-            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
-        
-        collection.add_vector(vector)
-    }
 
     pub fn search_text_in_collection(&self, collection_name: &str, query_text: &str, k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
         let collection = self.collections.get(collection_name)
@@ -142,12 +136,6 @@ impl VectorLiteClient {
         collection.search_text(query_text, k, similarity_metric, self.embedding_function.as_ref())
     }
 
-    pub fn search_vector_in_collection(&self, collection_name: &str, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
-        let collection = self.collections.get(collection_name)
-            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
-        
-        collection.search_vector(query_vector, k, similarity_metric)
-    }
 
     pub fn delete_from_collection(&self, collection_name: &str, id: u64) -> VectorLiteResult<()> {
         let collection = self.collections.get(collection_name)
@@ -310,7 +298,12 @@ impl Collection {
         // Generate embedding outside the lock
         let embedding = embedding_function.generate_embedding(text)?;
         
-        let vector = Vector { id, values: embedding };
+        let vector = Vector { 
+            id, 
+            values: embedding, 
+            text: text.to_string(),
+            metadata: None 
+        };
         let vector_dimension = vector.values.len();
         let vector_id = vector.id;
         
@@ -331,10 +324,23 @@ impl Collection {
         Ok(id)
     }
 
-    pub fn add_vector(&self, vector: Vector) -> VectorLiteResult<()> {
+    pub fn add_text_with_metadata(&self, text: &str, metadata: Option<serde_json::Value>, embedding_function: &dyn EmbeddingFunction) -> VectorLiteResult<u64> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        
+        // Generate embedding outside the lock
+        let embedding = embedding_function.generate_embedding(text)?;
+        
+        let vector = Vector { 
+            id, 
+            values: embedding, 
+            text: text.to_string(),
+            metadata 
+        };
         let vector_dimension = vector.values.len();
         let vector_id = vector.id;
-        let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for add_vector".to_string()))?;
+        
+        // Acquire write lock only for the index operation
+        let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for add_text_with_metadata".to_string()))?;
         index.add(vector).map_err(|e| {
             if e.contains("dimension") {
                 VectorLiteError::DimensionMismatch { 
@@ -346,8 +352,10 @@ impl Collection {
             } else {
                 VectorLiteError::InternalError(e)
             }
-        })
+        })?;
+        Ok(id)
     }
+
 
     pub fn delete(&self, id: u64) -> VectorLiteResult<()> {
         let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for delete".to_string()))?;
@@ -369,10 +377,6 @@ impl Collection {
         Ok(index.search(&query_embedding, k, similarity_metric))
     }
 
-    pub fn search_vector(&self, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
-        let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_vector".to_string()))?;
-        Ok(index.search(query_vector, k, similarity_metric))
-    }
 
     pub fn get_vector(&self, id: u64) -> VectorLiteResult<Option<Vector>> {
         let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_vector".to_string()))?;
@@ -426,7 +430,7 @@ impl Collection {
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
     /// client.create_collection("docs", IndexType::HNSW)?;
-    /// client.add_text_to_collection("docs", "Hello world")?;
+    /// client.add_text_to_collection("docs", "Hello world", None)?;
     ///
     /// let collection = client.get_collection("docs").unwrap();
     /// collection.save_to_file(Path::new("./docs.vlc"))?;
@@ -578,13 +582,13 @@ mod tests {
         client.create_collection("test_collection", IndexType::Flat).unwrap();
         
         // Add text
-        let result = client.add_text_to_collection("test_collection", "Hello world");
+        let result = client.add_text_to_collection("test_collection", "Hello world", None);
         assert!(result.is_ok());
         let id = result.unwrap();
         assert_eq!(id, 0); // First ID is 0
         
         // Add another text
-        let result = client.add_text_to_collection("test_collection", "Another text");
+        let result = client.add_text_to_collection("test_collection", "Another text", None);
         assert!(result.is_ok());
         let id = result.unwrap();
         assert_eq!(id, 1);
@@ -600,7 +604,7 @@ mod tests {
         let client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Try to add to non-existent collection
-        let result = client.add_text_to_collection("non_existent", "Hello world");
+        let result = client.add_text_to_collection("non_existent", "Hello world", None);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), VectorLiteError::CollectionNotFound { .. }));
     }
@@ -620,7 +624,7 @@ mod tests {
         assert_eq!(info.name, "test_collection");
         
         // Add text
-        let id = client.add_text_to_collection("test_collection", "Hello world").unwrap();
+        let id = client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
         assert_eq!(id, 0);
         
         let info = client.get_collection_info("test_collection").unwrap();
@@ -628,7 +632,7 @@ mod tests {
         assert_eq!(info.count, 1);
         
         // Add another text
-        let id = client.add_text_to_collection("test_collection", "Another text").unwrap();
+        let id = client.add_text_to_collection("test_collection", "Another text", None).unwrap();
         assert_eq!(id, 1);
         
         let info = client.get_collection_info("test_collection").unwrap();
@@ -664,8 +668,8 @@ mod tests {
         client.create_collection("hnsw_collection", IndexType::HNSW).unwrap();
         
         // Add some text
-        let id1 = client.add_text_to_collection("hnsw_collection", "First document").unwrap();
-        let id2 = client.add_text_to_collection("hnsw_collection", "Second document").unwrap();
+        let id1 = client.add_text_to_collection("hnsw_collection", "First document", None).unwrap();
+        let id2 = client.add_text_to_collection("hnsw_collection", "Second document", None).unwrap();
         
         assert_eq!(id1, 0);
         assert_eq!(id2, 1);
@@ -678,51 +682,7 @@ mod tests {
         assert_eq!(results.len(), 1);
     }
 
-    #[test]
-    fn test_add_vector_directly() {
-        let embedding_fn = MockEmbeddingFunction::new(3);
-        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
-        
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
-        
-        // Add vector directly
-        let vector = Vector {
-            id: 42,
-            values: vec![1.0, 2.0, 3.0],
-        };
-        
-        client.add_vector_to_collection("test_collection", vector).unwrap();
-        
-        let info = client.get_collection_info("test_collection").unwrap();
-        assert_eq!(info.count, 1);
-        
-        // Verify vector exists
-        let retrieved = client.get_vector_from_collection("test_collection", 42).unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().id, 42);
-    }
 
-    #[test]
-    fn test_search_vector_directly() {
-        let embedding_fn = MockEmbeddingFunction::new(3);
-        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
-        
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
-        
-        // Add some vectors
-        client.add_text_to_collection("test_collection", "Hello world").unwrap();
-        client.add_text_to_collection("test_collection", "Another text").unwrap();
-        
-        // Search with vector directly
-        let query_vector = vec![1.0, 2.0, 3.0];
-        let results = client.search_vector_in_collection("test_collection", &query_vector, 2, SimilarityMetric::Cosine).unwrap();
-        
-        assert_eq!(results.len(), 2);
-        // Results should be sorted by score (highest first)
-        for i in 1..results.len() {
-            assert!(results[i-1].score >= results[i].score);
-        }
-    }
 
     #[test]
     fn test_collection_save_and_load() {
@@ -731,8 +691,8 @@ mod tests {
         
         // Create collection and add some data
         client.create_collection("test_collection", IndexType::Flat).unwrap();
-        client.add_text_to_collection("test_collection", "Hello world").unwrap();
-        client.add_text_to_collection("test_collection", "Another text").unwrap();
+        client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
+        client.add_text_to_collection("test_collection", "Another text", None).unwrap();
         
         let collection = client.get_collection("test_collection").unwrap();
         
@@ -755,8 +715,9 @@ mod tests {
         assert_eq!(info.dimension, 3);
         assert!(!info.is_empty);
         
-        // Test search functionality
-        let results = loaded_collection.search_vector(&[1.0, 2.0, 3.0], 2, SimilarityMetric::Cosine).unwrap();
+        // Test search functionality using text search
+        let test_embedding_fn = MockEmbeddingFunction::new(3);
+        let results = loaded_collection.search_text("Hello", 2, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -767,8 +728,8 @@ mod tests {
         
         // Create HNSW collection and add some data
         client.create_collection("test_hnsw_collection", IndexType::HNSW).unwrap();
-        client.add_text_to_collection("test_hnsw_collection", "First document").unwrap();
-        client.add_text_to_collection("test_hnsw_collection", "Second document").unwrap();
+        client.add_text_to_collection("test_hnsw_collection", "First document", None).unwrap();
+        client.add_text_to_collection("test_hnsw_collection", "Second document", None).unwrap();
         
         let collection = client.get_collection("test_hnsw_collection").unwrap();
         
@@ -814,7 +775,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         client.create_collection("test_collection", IndexType::Flat).unwrap();
-        client.add_text_to_collection("test_collection", "Hello world").unwrap();
+        client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
         
         let collection = client.get_collection("test_collection").unwrap();
         
