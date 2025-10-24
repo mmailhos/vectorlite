@@ -127,7 +127,7 @@ async fn test_create_duplicate_collection() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 }
 
 #[tokio::test]

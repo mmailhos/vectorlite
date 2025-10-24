@@ -41,6 +41,10 @@ pub enum VectorLiteError {
     #[error("Embedding generation failed: {0}")]
     EmbeddingError(#[from] crate::embeddings::EmbeddingError),
     
+    /// File not found error
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+    
     /// Persistence error
     #[error("Persistence error: {0}")]
     PersistenceError(#[from] crate::persistence::PersistenceError),
@@ -60,6 +64,7 @@ impl VectorLiteError {
         match self {
             VectorLiteError::CollectionNotFound { .. } => StatusCode::NOT_FOUND,
             VectorLiteError::VectorNotFound { .. } => StatusCode::NOT_FOUND,
+            VectorLiteError::FileNotFound { .. } => StatusCode::NOT_FOUND,
             VectorLiteError::DimensionMismatch { .. } => StatusCode::BAD_REQUEST,
             VectorLiteError::DuplicateVectorId { .. } => StatusCode::CONFLICT,
             VectorLiteError::CollectionAlreadyExists { .. } => StatusCode::CONFLICT,
