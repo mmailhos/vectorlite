@@ -104,7 +104,7 @@ cargo build --features memory-optimized
 
 ## Rust SDK Example
 
-```rust
+```rust,no_run
 use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 use serde_json::json;
 
