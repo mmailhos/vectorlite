@@ -68,9 +68,7 @@ docker build \
 | **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw"}`                           |
 | **Delete collection** | `DELETE /collections/{name}`              | –                                                                  |
 | **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world", "metadata": {...}}`|
-| **Add vector**        | `POST /collections/{name}/vector`         | `{"id": 1, "values": [0.1, 0.2, ...], "metadata": {...}}`          |
 | **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`                                       |
-| **Search (vector)**   | `POST /collections/{name}/search/vector`  | `{"query": [0.1, 0.2, ...], "k": 5}`                               |
 | **Get vector**        | `GET /collections/{name}/vectors/{id}`    | –                                                                  |
 | **Delete vector**     | `DELETE /collections/{name}/vectors/{id}` | –                                                                  |
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |

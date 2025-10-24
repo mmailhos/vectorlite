@@ -147,7 +147,7 @@ pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 /// let vector = Vector {
 ///     id: 1,
 ///     values: vec![0.1, 0.2, 0.3, 0.4],
-///     text: Some("Sample document text".to_string()),
+///     text: "Sample document text".to_string(),
 ///     metadata: Some(json!({
 ///         "title": "Sample Document",
 ///         "category": "example",
@@ -162,7 +162,7 @@ pub struct Vector {
     /// The vector values (embedding coordinates)
     pub values: Vec<f64>,
     /// The original text that was embedded to create this vector
-    pub text: Option<String>,
+    pub text: String,
     /// Optional metadata associated with the vector
     /// Can contain arbitrary JSON data for flexible schema-less storage
     pub metadata: Option<serde_json::Value>,
@@ -181,7 +181,7 @@ pub struct Vector {
 /// let result = SearchResult {
 ///     id: 42,
 ///     score: 0.95,
-///     text: Some("Document content text".to_string()),
+///     text: "Document content text".to_string(),
 ///     metadata: Some(json!({"title": "Document Title"})),
 /// };
 /// ```
@@ -192,7 +192,7 @@ pub struct SearchResult {
     /// Similarity score (higher is more similar)
     pub score: f64,
     /// The original text that was embedded to create this vector
-    pub text: Option<String>,
+    pub text: String,
     /// Optional metadata from the matching vector
     pub metadata: Option<serde_json::Value>,
 }
@@ -209,7 +209,7 @@ pub struct SearchResult {
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = FlatIndex::new(3, Vec::new());
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None };
 /// 
 /// index.add(vector)?;
 /// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
@@ -254,7 +254,7 @@ pub trait VectorIndex {
 /// let mut wrapper = VectorIndexWrapper::Flat(FlatIndex::new(3, Vec::new()));
 /// 
 /// // Add a vector
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None };
 /// wrapper.add(vector)?;
 /// 
 /// // Search using the wrapper
@@ -645,8 +645,8 @@ mod tests {
     #[test]
     fn test_vector_store_creation() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: None, metadata: None },
-            Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: None, metadata: None },
+            Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: "test1".to_string(), metadata: None },
+            Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: "test2".to_string(), metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         assert_eq!(store.len(), 2);
@@ -656,9 +656,9 @@ mod tests {
     #[test]
     fn test_vector_store_search() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 0.0, 0.0], text: None, metadata: None },
-            Vector { id: 1, values: vec![0.0, 1.0, 0.0], text: None, metadata: None },
-            Vector { id: 2, values: vec![0.0, 0.0, 1.0], text: None, metadata: None },
+            Vector { id: 0, values: vec![1.0, 0.0, 0.0], text: "test1".to_string(), metadata: None },
+            Vector { id: 1, values: vec![0.0, 1.0, 0.0], text: "test2".to_string(), metadata: None },
+            Vector { id: 2, values: vec![0.0, 0.0, 1.0], text: "test3".to_string(), metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
@@ -675,8 +675,8 @@ mod tests {
         
         // Test FlatIndex wrapper
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 0.0, 0.0], text: None, metadata: None },
-            Vector { id: 2, values: vec![0.0, 1.0, 0.0], text: None, metadata: None },
+            Vector { id: 1, values: vec![1.0, 0.0, 0.0], text: "test1".to_string(), metadata: None },
+            Vector { id: 2, values: vec![0.0, 1.0, 0.0], text: "test2".to_string(), metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         let wrapper = VectorIndexWrapper::Flat(flat_index);
@@ -717,7 +717,7 @@ mod tests {
         let vector = Vector {
             id: 1,
             values: vec![1.0, 2.0, 3.0],
-            text: Some("Test document text".to_string()),
+            text: "Test document text".to_string(),
             metadata: Some(metadata.clone()),
         };
         
@@ -733,7 +733,7 @@ mod tests {
         let vector_no_metadata = Vector {
             id: 2,
             values: vec![4.0, 5.0, 6.0],
-            text: None,
+            text: "Test text".to_string(),
             metadata: None,
         };
         

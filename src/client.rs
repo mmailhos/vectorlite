@@ -128,12 +128,6 @@ impl VectorLiteClient {
         collection.add_text_with_metadata(text, metadata, self.embedding_function.as_ref())
     }
 
-    pub fn add_vector_to_collection(&self, collection_name: &str, vector: Vector) -> VectorLiteResult<()> {
-        let collection = self.collections.get(collection_name)
-            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
-        
-        collection.add_vector(vector)
-    }
 
     pub fn search_text_in_collection(&self, collection_name: &str, query_text: &str, k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
         let collection = self.collections.get(collection_name)
@@ -142,12 +136,6 @@ impl VectorLiteClient {
         collection.search_text(query_text, k, similarity_metric, self.embedding_function.as_ref())
     }
 
-    pub fn search_vector_in_collection(&self, collection_name: &str, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
-        let collection = self.collections.get(collection_name)
-            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
-        
-        collection.search_vector(query_vector, k, similarity_metric)
-    }
 
     pub fn delete_from_collection(&self, collection_name: &str, id: u64) -> VectorLiteResult<()> {
         let collection = self.collections.get(collection_name)
@@ -313,7 +301,7 @@ impl Collection {
         let vector = Vector { 
             id, 
             values: embedding, 
-            text: Some(text.to_string()),
+            text: text.to_string(),
             metadata: None 
         };
         let vector_dimension = vector.values.len();
@@ -345,7 +333,7 @@ impl Collection {
         let vector = Vector { 
             id, 
             values: embedding, 
-            text: Some(text.to_string()),
+            text: text.to_string(),
             metadata 
         };
         let vector_dimension = vector.values.len();
@@ -368,23 +356,6 @@ impl Collection {
         Ok(id)
     }
 
-    pub fn add_vector(&self, vector: Vector) -> VectorLiteResult<()> {
-        let vector_dimension = vector.values.len();
-        let vector_id = vector.id;
-        let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for add_vector".to_string()))?;
-        index.add(vector).map_err(|e| {
-            if e.contains("dimension") {
-                VectorLiteError::DimensionMismatch { 
-                    expected: index.dimension(), 
-                    actual: vector_dimension 
-                }
-            } else if e.contains("already exists") {
-                VectorLiteError::DuplicateVectorId { id: vector_id }
-            } else {
-                VectorLiteError::InternalError(e)
-            }
-        })
-    }
 
     pub fn delete(&self, id: u64) -> VectorLiteResult<()> {
         let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for delete".to_string()))?;
@@ -406,10 +377,6 @@ impl Collection {
         Ok(index.search(&query_embedding, k, similarity_metric))
     }
 
-    pub fn search_vector(&self, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
-        let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_vector".to_string()))?;
-        Ok(index.search(query_vector, k, similarity_metric))
-    }
 
     pub fn get_vector(&self, id: u64) -> VectorLiteResult<Option<Vector>> {
         let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_vector".to_string()))?;
@@ -715,53 +682,7 @@ mod tests {
         assert_eq!(results.len(), 1);
     }
 
-    #[test]
-    fn test_add_vector_directly() {
-        let embedding_fn = MockEmbeddingFunction::new(3);
-        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
-        
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
-        
-        // Add vector directly
-        let vector = Vector {
-            id: 42,
-            values: vec![1.0, 2.0, 3.0],
-            text: Some("Test vector text".to_string()),
-            metadata: None,
-        };
-        
-        client.add_vector_to_collection("test_collection", vector).unwrap();
-        
-        let info = client.get_collection_info("test_collection").unwrap();
-        assert_eq!(info.count, 1);
-        
-        // Verify vector exists
-        let retrieved = client.get_vector_from_collection("test_collection", 42).unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().id, 42);
-    }
 
-    #[test]
-    fn test_search_vector_directly() {
-        let embedding_fn = MockEmbeddingFunction::new(3);
-        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
-        
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
-        
-        // Add some vectors
-        client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
-        client.add_text_to_collection("test_collection", "Another text", None).unwrap();
-        
-        // Search with vector directly
-        let query_vector = vec![1.0, 2.0, 3.0];
-        let results = client.search_vector_in_collection("test_collection", &query_vector, 2, SimilarityMetric::Cosine).unwrap();
-        
-        assert_eq!(results.len(), 2);
-        // Results should be sorted by score (highest first)
-        for i in 1..results.len() {
-            assert!(results[i-1].score >= results[i].score);
-        }
-    }
 
     #[test]
     fn test_collection_save_and_load() {
@@ -794,8 +715,9 @@ mod tests {
         assert_eq!(info.dimension, 3);
         assert!(!info.is_empty);
         
-        // Test search functionality
-        let results = loaded_collection.search_vector(&[1.0, 2.0, 3.0], 2, SimilarityMetric::Cosine).unwrap();
+        // Test search functionality using text search
+        let test_embedding_fn = MockEmbeddingFunction::new(3);
+        let results = loaded_collection.search_text("Hello", 2, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 2);
     }
 

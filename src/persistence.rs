@@ -166,10 +166,31 @@ mod tests {
     use crate::{FlatIndex, HNSWIndex, Vector, SimilarityMetric};
     use tempfile::TempDir;
 
+    // Mock embedding function for testing
+    struct MockEmbeddingFunction {
+        dimension: usize,
+    }
+
+    impl MockEmbeddingFunction {
+        fn new(dimension: usize) -> Self {
+            Self { dimension }
+        }
+    }
+
+    impl crate::embeddings::EmbeddingFunction for MockEmbeddingFunction {
+        fn generate_embedding(&self, _text: &str) -> crate::embeddings::Result<Vec<f64>> {
+            Ok(vec![1.0; self.dimension])
+        }
+
+        fn dimension(&self) -> usize {
+            self.dimension
+        }
+    }
+
     fn create_test_collection() -> Collection {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: None, metadata: None },
-            Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: None, metadata: None },
+            Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None },
+            Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: "test".to_string(), metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         let index = VectorIndexWrapper::Flat(flat_index);
@@ -256,12 +277,9 @@ mod tests {
         
         let collection = Collection::new("test_hnsw_collection".to_string(), index);
         
-        // Add some vectors
-        let vector1 = Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: None, metadata: None };
-        let vector2 = Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: None, metadata: None };
-        
-        collection.add_vector(vector1).unwrap();
-        collection.add_vector(vector2).unwrap();
+        // Add vectors using text method
+        collection.add_text("test1", &MockEmbeddingFunction::new(3)).unwrap();
+        collection.add_text("test2", &MockEmbeddingFunction::new(3)).unwrap();
         
         // Save and load
         save_collection_to_file(&collection, &file_path).unwrap();

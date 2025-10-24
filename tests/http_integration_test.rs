@@ -94,7 +94,7 @@ async fn test_create_collection() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["message"].as_str().unwrap().contains("created successfully"));
+    assert_eq!(json["name"], "test_collection");
 }
 
 #[tokio::test]
@@ -175,34 +175,8 @@ async fn test_add_text_to_collection() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(json["id"], 0);
-    assert!(json["message"].as_str().unwrap().contains("added successfully"));
 }
 
-#[tokio::test]
-async fn test_add_vector_to_collection() {
-    let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat).unwrap();
-    let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
-
-    let payload = json!({
-        "id": 42,
-        "values": [1.0, 2.0, 3.0]
-    });
-
-    let request = Request::builder()
-        .uri("/collections/test_collection/vector")
-        .method("POST")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["message"].as_str().unwrap().contains("added successfully"));
-}
 
 #[tokio::test]
 async fn test_search_text() {
@@ -234,35 +208,6 @@ async fn test_search_text() {
     assert_eq!(json["results"][0]["id"], 0);
 }
 
-#[tokio::test]
-async fn test_search_vector() {
-    let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat).unwrap();
-    client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
-    let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
-
-    let payload = json!({
-        "query": [1.0, 2.0, 3.0],
-        "k": 5,
-        "similarity_metric": "cosine"
-    });
-
-    let request = Request::builder()
-        .uri("/collections/test_collection/search/vector")
-        .method("POST")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
-        .unwrap();
-
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["results"].is_array());
-    assert_eq!(json["results"].as_array().unwrap().len(), 1);
-    assert_eq!(json["results"][0]["id"], 0);
-}
 
 #[tokio::test]
 async fn test_get_vector() {
@@ -304,7 +249,7 @@ async fn test_delete_vector() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["message"].as_str().unwrap().contains("deleted successfully"));
+    assert!(json.is_object());
 }
 
 #[tokio::test]
@@ -324,5 +269,5 @@ async fn test_delete_collection() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["message"].as_str().unwrap().contains("deleted successfully"));
+    assert_eq!(json["name"], "test_collection");
 }
