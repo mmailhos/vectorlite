@@ -65,7 +65,7 @@
 //!     )?;
 //!
 //!     for result in &results {
-//!         println!("ID: {}, Score: {:.4}", result.id, result.score);
+//!         println!("ID: {}, Score: {:.4}, Text: {:?}", result.id, result.score, result.text);
 //!     }
 //!
 //!     Ok(())
@@ -136,7 +136,7 @@ use serde::{Serialize, Deserialize};
 /// Default vector dimension for embedding models
 pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 
-/// Represents a vector with an ID and floating-point values
+/// Represents a vector with an ID, floating-point values, and original text
 ///
 /// # Examples
 ///
@@ -147,6 +147,7 @@ pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 /// let vector = Vector {
 ///     id: 1,
 ///     values: vec![0.1, 0.2, 0.3, 0.4],
+///     text: Some("Sample document text".to_string()),
 ///     metadata: Some(json!({
 ///         "title": "Sample Document",
 ///         "category": "example",
@@ -160,12 +161,14 @@ pub struct Vector {
     pub id: u64,
     /// The vector values (embedding coordinates)
     pub values: Vec<f64>,
+    /// The original text that was embedded to create this vector
+    pub text: Option<String>,
     /// Optional metadata associated with the vector
     /// Can contain arbitrary JSON data for flexible schema-less storage
     pub metadata: Option<serde_json::Value>,
 }
 
-/// Search result containing a vector ID, similarity score, and optional metadata
+/// Search result containing a vector ID, similarity score, original text, and optional metadata
 ///
 /// Results are typically sorted by score in descending order (highest similarity first).
 ///
@@ -178,6 +181,7 @@ pub struct Vector {
 /// let result = SearchResult {
 ///     id: 42,
 ///     score: 0.95,
+///     text: Some("Document content text".to_string()),
 ///     metadata: Some(json!({"title": "Document Title"})),
 /// };
 /// ```
@@ -187,6 +191,8 @@ pub struct SearchResult {
     pub id: u64,
     /// Similarity score (higher is more similar)
     pub score: f64,
+    /// The original text that was embedded to create this vector
+    pub text: Option<String>,
     /// Optional metadata from the matching vector
     pub metadata: Option<serde_json::Value>,
 }
@@ -639,8 +645,8 @@ mod tests {
     #[test]
     fn test_vector_store_creation() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 2.0, 3.0], metadata: None },
-            Vector { id: 1, values: vec![4.0, 5.0, 6.0], metadata: None },
+            Vector { id: 0, values: vec![1.0, 2.0, 3.0], text: None, metadata: None },
+            Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: None, metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         assert_eq!(store.len(), 2);
@@ -650,9 +656,9 @@ mod tests {
     #[test]
     fn test_vector_store_search() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 0.0, 0.0], metadata: None },
-            Vector { id: 1, values: vec![0.0, 1.0, 0.0], metadata: None },
-            Vector { id: 2, values: vec![0.0, 0.0, 1.0], metadata: None },
+            Vector { id: 0, values: vec![1.0, 0.0, 0.0], text: None, metadata: None },
+            Vector { id: 1, values: vec![0.0, 1.0, 0.0], text: None, metadata: None },
+            Vector { id: 2, values: vec![0.0, 0.0, 1.0], text: None, metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
@@ -669,8 +675,8 @@ mod tests {
         
         // Test FlatIndex wrapper
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
-            Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
+            Vector { id: 1, values: vec![1.0, 0.0, 0.0], text: None, metadata: None },
+            Vector { id: 2, values: vec![0.0, 1.0, 0.0], text: None, metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         let wrapper = VectorIndexWrapper::Flat(flat_index);
@@ -711,6 +717,7 @@ mod tests {
         let vector = Vector {
             id: 1,
             values: vec![1.0, 2.0, 3.0],
+            text: Some("Test document text".to_string()),
             metadata: Some(metadata.clone()),
         };
         
@@ -726,6 +733,7 @@ mod tests {
         let vector_no_metadata = Vector {
             id: 2,
             values: vec![4.0, 5.0, 6.0],
+            text: None,
             metadata: None,
         };
         

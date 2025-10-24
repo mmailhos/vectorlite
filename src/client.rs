@@ -310,7 +310,12 @@ impl Collection {
         // Generate embedding outside the lock
         let embedding = embedding_function.generate_embedding(text)?;
         
-        let vector = Vector { id, values: embedding, metadata: None };
+        let vector = Vector { 
+            id, 
+            values: embedding, 
+            text: Some(text.to_string()),
+            metadata: None 
+        };
         let vector_dimension = vector.values.len();
         let vector_id = vector.id;
         
@@ -337,7 +342,12 @@ impl Collection {
         // Generate embedding outside the lock
         let embedding = embedding_function.generate_embedding(text)?;
         
-        let vector = Vector { id, values: embedding, metadata };
+        let vector = Vector { 
+            id, 
+            values: embedding, 
+            text: Some(text.to_string()),
+            metadata 
+        };
         let vector_dimension = vector.values.len();
         let vector_id = vector.id;
         
@@ -716,6 +726,7 @@ mod tests {
         let vector = Vector {
             id: 42,
             values: vec![1.0, 2.0, 3.0],
+            text: Some("Test vector text".to_string()),
             metadata: None,
         };
         

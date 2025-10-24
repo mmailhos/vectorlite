@@ -98,6 +98,7 @@ pub struct AddTextResponse {
 pub struct AddVectorRequest {
     pub id: u64,
     pub values: Vec<f64>,
+    pub text: Option<String>,
     pub metadata: Option<serde_json::Value>,
 }
 
@@ -290,6 +291,7 @@ async fn add_vector(
     let vector = Vector {
         id: payload.id,
         values: payload.values,
+        text: payload.text,
         metadata: payload.metadata,
     };
 
