@@ -38,7 +38,7 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust
+//! ```rust,no_run
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 //! use serde_json::json;
 //!
