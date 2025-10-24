@@ -1,15 +1,32 @@
 //! # VectorLite
 //!
-//! A high-performance, in-memory vector database optimized for AI agent workloads with HTTP API and thread-safe concurrency.
+//! **A tiny, in-process Rust vector store with built-in embeddings for sub-millisecond semantic search.**
 //!
-//! ## Overview
+//! VectorLite is a high-performance, **in-memory vector database** optimized for **AI agent** and **edge** workloads.  
+//! It co-locates model inference (via [Candle](https://github.com/huggingface/candle)) with a low-latency vector index, making it ideal for **session-scoped**, **single-instance**, or **privacy-sensitive** environments.
 //!
-//! VectorLite is designed for **single-instance, low-latency vector operations** in AI agent environments. It prioritizes **sub-millisecond search performance** over distributed scalability, making it ideal for:
+//! ## Why VectorLite?
 //!
-//! - **AI Agent Sessions**: Session-scoped vector storage with fast retrieval
-//! - **Real-time Search**: Sub-millisecond response requirements  
-//! - **Prototype Development**: Rapid iteration without infrastructure complexity
-//! - **Single-tenant Applications**: No multi-tenancy isolation requirements
+//! | Feature | Description |
+//! |----------|-------------|
+//! | **Sub-millisecond search** | In-memory HNSW or flat search tuned for real-time agent loops. |
+//! | **Built-in embeddings** | Runs [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) locally using Candle, or any other model of your choice. No external API calls. |
+//! | **Single-binary simplicity** | No dependencies, no servers to orchestrate. Start instantly via CLI or Docker. |
+//! | **Session-scoped collections** | Perfect for ephemeral agent sessions or sidecars |
+//! | **Thread-safe concurrency** | RwLock-based access and atomic ID generation for multi-threaded workloads. |
+//! | **Instant persistence** | Save or restore collections snapshots in one call. |
+//!
+//! VectorLite trades distributed scalability for deterministic performance, perfect for use cases where latency matters more than millions of vectors.
+//!
+//! ## When to Use It
+//!
+//! | Scenario | Why VectorLite fits |
+//! |-----------|--------------------|
+//! | **AI agent sessions** | Keep short-lived embeddings per conversation. No network latency. |
+//! | **Edge or embedded AI** | Run fully offline with model + index in one binary. |
+//! | **Realtime search / personalization** | Sub-ms search for pre-computed embeddings. |
+//! | **Local prototyping & CI** | Rust-native, no external services. |
+//! | **Single-tenant microservices** | Lightweight sidecar for semantic capabilities. |
 //!
 //! ## Key Features
 //!
@@ -23,26 +40,36 @@
 //!
 //! ```rust
 //! use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
+//! use serde_json::json;
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Create client with embedding function
-//! let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
-//! // Create collection
-//! client.create_collection("documents", IndexType::HNSW)?;
+//!     client.create_collection("quotes", IndexType::HNSW)?;
+//!     
+//!     let id = client.add_text_to_collection(
+//!         "quotes", 
+//!         "I just want to lie on the beach and eat hot dogs",
+//!         Some(json!({
+//!             "author": "Kevin Malone",
+//!             "tags": ["the-office", "s3:e23"],
+//!             "year": 2005,
+//!         }))
+//!     )?;
 //!
-//! // Add text (auto-generates embedding and ID)
-//! let id = client.add_text_to_collection("documents", "Hello world")?;
+//!     let results = client.search_text_in_collection(
+//!         "quotes",
+//!         "beach games",
+//!         3,
+//!         SimilarityMetric::Cosine,
+//!     )?;
 //!
-//! // Search
-//! let results = client.search_text_in_collection(
-//!     "documents", 
-//!     "hello", 
-//!     5, 
-//!     SimilarityMetric::Cosine
-//! )?;
-//! # Ok(())
-//! # }
+//!     for result in &results {
+//!         println!("ID: {}, Score: {:.4}", result.id, result.score);
+//!     }
+//!
+//!     Ok(())
+//! }
 //! ```
 //!
 //! ## Index Types

@@ -15,7 +15,7 @@
 //! - `DELETE /collections/{name}` - Delete a collection
 //!
 //! ## Vector Operations
-//! - `POST /collections/{name}/text` - Add text (auto-generates embedding)
+//! - `POST /collections/{name}/text` - Add text (auto-generates embedding, optional metadata)
 //! - `POST /collections/{name}/vector` - Add raw vector
 //! - `POST /collections/{name}/search/text` - Search by text
 //! - `POST /collections/{name}/search/vector` - Search by vector
@@ -85,6 +85,7 @@ pub struct CreateCollectionResponse {
 #[derive(Debug, Deserialize)]
 pub struct AddTextRequest {
     pub text: String,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -266,7 +267,7 @@ async fn add_text(
     Json(payload): Json<AddTextRequest>,
 ) -> Result<Json<AddTextResponse>, StatusCode> {
     let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.add_text_to_collection(&collection_name, &payload.text) {
+    match client.add_text_to_collection(&collection_name, &payload.text, payload.metadata) {
         Ok(id) => {
             info!("Added text to collection '{}' with ID: {}", collection_name, id);
             Ok(Json(AddTextResponse {
@@ -279,6 +280,7 @@ async fn add_text(
         }
     }
 }
+
 
 async fn add_vector(
     State(state): State<AppState>,

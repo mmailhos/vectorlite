@@ -208,7 +208,7 @@ async fn test_add_vector_to_collection() {
 async fn test_search_text() {
     let mut client = create_test_client();
     client.create_collection("test_collection", vectorlite::IndexType::Flat).unwrap();
-    client.add_text_to_collection("test_collection", "Hello world").unwrap();
+    client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let payload = json!({
@@ -238,7 +238,7 @@ async fn test_search_text() {
 async fn test_search_vector() {
     let mut client = create_test_client();
     client.create_collection("test_collection", vectorlite::IndexType::Flat).unwrap();
-    client.add_text_to_collection("test_collection", "Hello world").unwrap();
+    client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let payload = json!({
@@ -268,7 +268,7 @@ async fn test_search_vector() {
 async fn test_get_vector() {
     let mut client = create_test_client();
     client.create_collection("test_collection", vectorlite::IndexType::Flat).unwrap();
-    client.add_text_to_collection("test_collection", "Hello world").unwrap();
+    client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let request = Request::builder()
@@ -290,7 +290,7 @@ async fn test_get_vector() {
 async fn test_delete_vector() {
     let mut client = create_test_client();
     client.create_collection("test_collection", vectorlite::IndexType::Flat).unwrap();
-    client.add_text_to_collection("test_collection", "Hello world").unwrap();
+    client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let request = Request::builder()
