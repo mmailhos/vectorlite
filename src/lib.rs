@@ -114,10 +114,16 @@ pub const DEFAULT_VECTOR_DIMENSION: usize = 768;
 ///
 /// ```rust
 /// use vectorlite::Vector;
+/// use serde_json::json;
 ///
 /// let vector = Vector {
 ///     id: 1,
 ///     values: vec![0.1, 0.2, 0.3, 0.4],
+///     metadata: Some(json!({
+///         "title": "Sample Document",
+///         "category": "example",
+///         "tags": ["demo", "test"]
+///     })),
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,9 +132,12 @@ pub struct Vector {
     pub id: u64,
     /// The vector values (embedding coordinates)
     pub values: Vec<f64>,
+    /// Optional metadata associated with the vector
+    /// Can contain arbitrary JSON data for flexible schema-less storage
+    pub metadata: Option<serde_json::Value>,
 }
 
-/// Search result containing a vector ID and similarity score
+/// Search result containing a vector ID, similarity score, and optional metadata
 ///
 /// Results are typically sorted by score in descending order (highest similarity first).
 ///
@@ -136,10 +145,12 @@ pub struct Vector {
 ///
 /// ```rust
 /// use vectorlite::SearchResult;
+/// use serde_json::json;
 ///
 /// let result = SearchResult {
 ///     id: 42,
 ///     score: 0.95,
+///     metadata: Some(json!({"title": "Document Title"})),
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,6 +159,8 @@ pub struct SearchResult {
     pub id: u64,
     /// Similarity score (higher is more similar)
     pub score: f64,
+    /// Optional metadata from the matching vector
+    pub metadata: Option<serde_json::Value>,
 }
 
 /// Trait for vector indexing implementations
@@ -162,7 +175,7 @@ pub struct SearchResult {
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = FlatIndex::new(3, Vec::new());
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
 /// 
 /// index.add(vector)?;
 /// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
@@ -207,7 +220,7 @@ pub trait VectorIndex {
 /// let mut wrapper = VectorIndexWrapper::Flat(FlatIndex::new(3, Vec::new()));
 /// 
 /// // Add a vector
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
 /// wrapper.add(vector)?;
 /// 
 /// // Search using the wrapper
@@ -598,8 +611,8 @@ mod tests {
     #[test]
     fn test_vector_store_creation() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 2.0, 3.0] },
-            Vector { id: 1, values: vec![4.0, 5.0, 6.0] },
+            Vector { id: 0, values: vec![1.0, 2.0, 3.0], metadata: None },
+            Vector { id: 1, values: vec![4.0, 5.0, 6.0], metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         assert_eq!(store.len(), 2);
@@ -609,9 +622,9 @@ mod tests {
     #[test]
     fn test_vector_store_search() {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 0.0, 0.0] },
-            Vector { id: 1, values: vec![0.0, 1.0, 0.0] },
-            Vector { id: 2, values: vec![0.0, 0.0, 1.0] },
+            Vector { id: 0, values: vec![1.0, 0.0, 0.0], metadata: None },
+            Vector { id: 1, values: vec![0.0, 1.0, 0.0], metadata: None },
+            Vector { id: 2, values: vec![0.0, 0.0, 1.0], metadata: None },
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
@@ -628,8 +641,8 @@ mod tests {
         
         // Test FlatIndex wrapper
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-            Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
+            Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
+            Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         let wrapper = VectorIndexWrapper::Flat(flat_index);
@@ -650,6 +663,53 @@ mod tests {
         let results = deserialized.search(&query, 1, SimilarityMetric::Cosine);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 1);
+    }
+
+    #[test]
+    fn test_vector_metadata_functionality() {
+        use serde_json::json;
+        
+        // Test vector with metadata
+        let metadata = json!({
+            "title": "Test Document",
+            "category": "example",
+            "tags": ["test", "metadata"],
+            "nested": {
+                "value": 42,
+                "enabled": true
+            }
+        });
+        
+        let vector = Vector {
+            id: 1,
+            values: vec![1.0, 2.0, 3.0],
+            metadata: Some(metadata.clone()),
+        };
+        
+        // Test that metadata is preserved
+        assert!(vector.metadata.is_some());
+        let stored_metadata = vector.metadata.as_ref().unwrap();
+        assert_eq!(stored_metadata["title"], "Test Document");
+        assert_eq!(stored_metadata["category"], "example");
+        assert_eq!(stored_metadata["nested"]["value"], 42);
+        assert_eq!(stored_metadata["nested"]["enabled"], true);
+        
+        // Test vector without metadata
+        let vector_no_metadata = Vector {
+            id: 2,
+            values: vec![4.0, 5.0, 6.0],
+            metadata: None,
+        };
+        
+        assert!(vector_no_metadata.metadata.is_none());
+        
+        // Test serialization/deserialization with metadata
+        let serialized = serde_json::to_string(&vector).expect("Serialization should work");
+        let deserialized: Vector = serde_json::from_str(&serialized).expect("Deserialization should work");
+        
+        assert_eq!(deserialized.id, vector.id);
+        assert_eq!(deserialized.values, vector.values);
+        assert_eq!(deserialized.metadata, vector.metadata);
     }
 
 }

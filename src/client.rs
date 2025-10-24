@@ -310,7 +310,7 @@ impl Collection {
         let embedding = embedding_function.generate_embedding(text)
             .map_err(|e| e.to_string())?;
         
-        let vector = Vector { id, values: embedding };
+        let vector = Vector { id, values: embedding, metadata: None };
         
         // Acquire write lock only for the index operation
         let mut index = self.index.write().map_err(|_| "Failed to acquire write lock")?;
@@ -658,6 +658,7 @@ mod tests {
         let vector = Vector {
             id: 42,
             values: vec![1.0, 2.0, 3.0],
+            metadata: None,
         };
         
         client.add_vector_to_collection("test_collection", vector).unwrap();

@@ -98,6 +98,7 @@ pub struct AddTextResponse {
 pub struct AddVectorRequest {
     pub id: u64,
     pub values: Vec<f64>,
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -321,6 +322,7 @@ async fn add_vector(
     let vector = Vector {
         id: payload.id,
         values: payload.values,
+        metadata: payload.metadata,
     };
 
     let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

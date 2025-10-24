@@ -168,8 +168,8 @@ mod tests {
 
     fn create_test_collection() -> Collection {
         let vectors = vec![
-            Vector { id: 0, values: vec![1.0, 2.0, 3.0] },
-            Vector { id: 1, values: vec![4.0, 5.0, 6.0] },
+            Vector { id: 0, values: vec![1.0, 2.0, 3.0], metadata: None },
+            Vector { id: 1, values: vec![4.0, 5.0, 6.0], metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         let index = VectorIndexWrapper::Flat(flat_index);
@@ -257,8 +257,8 @@ mod tests {
         let collection = Collection::new("test_hnsw_collection".to_string(), index);
         
         // Add some vectors
-        let vector1 = Vector { id: 0, values: vec![1.0, 2.0, 3.0] };
-        let vector2 = Vector { id: 1, values: vec![4.0, 5.0, 6.0] };
+        let vector1 = Vector { id: 0, values: vec![1.0, 2.0, 3.0], metadata: None };
+        let vector2 = Vector { id: 1, values: vec![4.0, 5.0, 6.0], metadata: None };
         
         collection.add_vector(vector1).unwrap();
         collection.add_vector(vector2).unwrap();

@@ -31,7 +31,7 @@
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut index = HNSWIndex::new(384);
-//! let vector = Vector { id: 1, values: vec![0.1; 384] };
+//! let vector = Vector { id: 1, values: vec![0.1; 384], metadata: None };
 //! 
 //! index.add(vector)?;
 //! let results = index.search(&[0.1; 384], 5, SimilarityMetric::Cosine);
@@ -235,7 +235,11 @@ impl VectorIndex for HNSWIndex {
                 self.index_to_id.get(&n.index).and_then(|&custom_id| {
                     self.vectors.get(&custom_id).map(|vector| {
                         let score = similarity_metric.calculate(&vector.values, query);
-                        SearchResult { id: custom_id, score }
+                        SearchResult { 
+                            id: custom_id, 
+                            score,
+                            metadata: vector.metadata.clone()
+                        }
                     })
                 })
             })
@@ -282,6 +286,7 @@ fn test_add_vector() {
     let vector = Vector {
         id: 1,
         values: vec![1.0, 2.0, 3.0],
+        metadata: None,
     };
     
     assert!(hnsw.add(vector).is_ok());
@@ -295,6 +300,7 @@ fn test_add_vector_dimension_mismatch() {
     let vector = Vector {
         id: 1,
         values: vec![1.0, 2.0], // Wrong dimension
+        metadata: None,
     };
     
     assert!(hnsw.add(vector).is_err());
@@ -306,10 +312,10 @@ fn test_search_basic() {
     let mut hnsw = HNSWIndex::new(3);
     
     let vectors = vec![
-        Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-        Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
-        Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
-        Vector { id: 4, values: vec![1.0, 1.0, 0.0] },
+        Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
+        Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
+        Vector { id: 3, values: vec![0.0, 0.0, 1.0], metadata: None },
+        Vector { id: 4, values: vec![1.0, 1.0, 0.0], metadata: None },
     ];
     
     for vector in vectors {
@@ -346,10 +352,10 @@ fn test_id_mapping() {
     
     // Add vectors with custom IDs
     let vectors = vec![
-        Vector { id: 100, values: vec![1.0, 0.0, 0.0] },
-        Vector { id: 200, values: vec![0.0, 1.0, 0.0] },
-        Vector { id: 300, values: vec![0.0, 0.0, 1.0] },
-        Vector { id: 400, values: vec![1.0, 1.0, 0.0] },
+        Vector { id: 100, values: vec![1.0, 0.0, 0.0], metadata: None },
+        Vector { id: 200, values: vec![0.0, 1.0, 0.0], metadata: None },
+        Vector { id: 300, values: vec![0.0, 0.0, 1.0], metadata: None },
+        Vector { id: 400, values: vec![1.0, 1.0, 0.0], metadata: None },
     ];
     
     for vector in vectors {
@@ -376,8 +382,8 @@ fn test_id_mapping() {
 fn test_duplicate_id_error() {
     let mut hnsw = HNSWIndex::new(3);
     
-    let vector1 = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
-    let vector2 = Vector { id: 1, values: vec![4.0, 5.0, 6.0] }; // Same ID
+    let vector1 = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
+    let vector2 = Vector { id: 1, values: vec![4.0, 5.0, 6.0], metadata: None }; // Same ID
     
     assert!(hnsw.add(vector1).is_ok());
     assert!(hnsw.add(vector2).is_err()); // Should fail with duplicate ID
@@ -387,7 +393,7 @@ fn test_duplicate_id_error() {
 fn test_delete_vector() {
     let mut hnsw = HNSWIndex::new(3);
     
-    let vector = Vector { id: 42, values: vec![1.0, 2.0, 3.0] };
+    let vector = Vector { id: 42, values: vec![1.0, 2.0, 3.0], metadata: None };
     assert!(hnsw.add(vector).is_ok());
     assert_eq!(hnsw.len(), 1);
     
@@ -421,9 +427,9 @@ fn test_serialization_deserialization() {
     // Create an HNSW index with some data
     let mut hnsw = HNSWIndex::new(3);
     let vectors = vec![
-        Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-        Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
-        Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
+        Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
+        Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
+        Vector { id: 3, values: vec![0.0, 0.0, 1.0], metadata: None },
     ];
     
     for vector in vectors {
@@ -454,7 +460,7 @@ fn test_serialization_deserialization() {
     assert_eq!(vector3.values, vec![0.0, 0.0, 1.0]);
     
     // Test that we can add a new vector to the deserialized index
-    let new_vector = Vector { id: 4, values: vec![1.0, 1.0, 1.0] };
+    let new_vector = Vector { id: 4, values: vec![1.0, 1.0, 1.0], metadata: None };
     assert!(deserialized.add(new_vector).is_ok());
     assert_eq!(deserialized.len(), 4);
     
@@ -505,7 +511,7 @@ fn test_empty_hnsw_serialization_deserialization() {
     assert!(deserialized.is_empty());
     
     // Test that we can add vectors to the deserialized empty index
-    let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+    let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
     assert!(deserialized.add(vector).is_ok());
     assert_eq!(deserialized.len(), 1);
     assert!(!deserialized.is_empty());
@@ -517,9 +523,9 @@ fn test_search_with_limited_vectors() {
     
     // Add only 3 vectors
     let vectors = vec![
-        Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-        Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
-        Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
+        Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
+        Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
+        Vector { id: 3, values: vec![0.0, 0.0, 1.0], metadata: None },
     ];
     
     for vector in vectors {

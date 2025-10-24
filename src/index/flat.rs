@@ -24,7 +24,7 @@
 //!
 //! # fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let mut index = FlatIndex::new(3, Vec::new());
-//! let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+//! let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
 //! 
 //! index.add(vector)?;
 //! let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
@@ -49,7 +49,7 @@ use serde::{Serialize, Deserialize};
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut index = FlatIndex::new(3, Vec::new());
-/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0] };
+/// let vector = Vector { id: 1, values: vec![1.0, 2.0, 3.0], metadata: None };
 /// 
 /// index.add(vector)?;
 /// let results = index.search(&[1.1, 2.1, 3.1], 5, SimilarityMetric::Cosine);
@@ -100,7 +100,8 @@ impl VectorIndex for FlatIndex {
         .iter()
         .map(|e| SearchResult {
             id: e.id,
-            score: similarity_metric.calculate(&e.values, query)
+            score: similarity_metric.calculate(&e.values, query),
+            metadata: e.metadata.clone()
         })
         .collect();
         
@@ -136,9 +137,9 @@ mod tests {
     fn test_serialization_deserialization() {
         // Create a FlatIndex with some data
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-            Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
-            Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
+            Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
+            Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
+            Vector { id: 3, values: vec![0.0, 0.0, 1.0], metadata: None },
         ];
         let flat_index = FlatIndex::new(3, vectors);
         
@@ -177,9 +178,9 @@ mod tests {
     #[test]
     fn test_flat_index_with_cosine_similarity() {
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 0.0, 0.0] },
-            Vector { id: 2, values: vec![0.0, 1.0, 0.0] },
-            Vector { id: 3, values: vec![0.0, 0.0, 1.0] },
+            Vector { id: 1, values: vec![1.0, 0.0, 0.0], metadata: None },
+            Vector { id: 2, values: vec![0.0, 1.0, 0.0], metadata: None },
+            Vector { id: 3, values: vec![0.0, 0.0, 1.0], metadata: None },
         ];
         
         let index = FlatIndex::new(3, vectors);
@@ -194,9 +195,9 @@ mod tests {
     #[test]
     fn test_flat_index_with_euclidean_similarity() {
         let vectors = vec![
-            Vector { id: 1, values: vec![0.0, 0.0] },
-            Vector { id: 2, values: vec![3.0, 4.0] },
-            Vector { id: 3, values: vec![6.0, 8.0] },
+            Vector { id: 1, values: vec![0.0, 0.0], metadata: None },
+            Vector { id: 2, values: vec![3.0, 4.0], metadata: None },
+            Vector { id: 3, values: vec![6.0, 8.0], metadata: None },
         ];
         
         let index = FlatIndex::new(2, vectors);
@@ -211,9 +212,9 @@ mod tests {
     #[test]
     fn test_flat_index_with_manhattan_similarity() {
         let vectors = vec![
-            Vector { id: 1, values: vec![0.0, 0.0] },
-            Vector { id: 2, values: vec![3.0, 4.0] },
-            Vector { id: 3, values: vec![6.0, 8.0] },
+            Vector { id: 1, values: vec![0.0, 0.0], metadata: None },
+            Vector { id: 2, values: vec![3.0, 4.0], metadata: None },
+            Vector { id: 3, values: vec![6.0, 8.0], metadata: None },
         ];
         
         let index = FlatIndex::new(2, vectors);
@@ -228,9 +229,9 @@ mod tests {
     #[test]
     fn test_flat_index_with_dot_product() {
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 2.0] },
-            Vector { id: 2, values: vec![2.0, 1.0] },
-            Vector { id: 3, values: vec![0.0, 0.0] },
+            Vector { id: 1, values: vec![1.0, 2.0], metadata: None },
+            Vector { id: 2, values: vec![2.0, 1.0], metadata: None },
+            Vector { id: 3, values: vec![0.0, 0.0], metadata: None },
         ];
         
         let index = FlatIndex::new(2, vectors);
@@ -245,8 +246,8 @@ mod tests {
     #[test]
     fn test_flat_index_change_similarity_metric() {
         let vectors = vec![
-            Vector { id: 1, values: vec![1.0, 2.0] },
-            Vector { id: 2, values: vec![2.0, 1.0] },
+            Vector { id: 1, values: vec![1.0, 2.0], metadata: None },
+            Vector { id: 2, values: vec![2.0, 1.0], metadata: None },
         ];
         
         let index = FlatIndex::new(2, vectors);
