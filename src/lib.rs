@@ -95,6 +95,7 @@ pub mod embeddings;
 pub mod client;
 pub mod server;
 pub mod persistence;
+pub mod errors;
 
 pub use index::flat::FlatIndex;
 pub use index::hnsw::HNSWIndex;

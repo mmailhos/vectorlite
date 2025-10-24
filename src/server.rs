@@ -68,6 +68,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, error};
 
 use crate::{VectorLiteClient, Vector, SearchResult, SimilarityMetric, IndexType};
+use crate::errors::{VectorLiteError, VectorLiteResult};
 
 // Request/Response types
 #[derive(Debug, Deserialize)]
@@ -166,21 +167,21 @@ pub struct LoadCollectionResponse {
 pub type AppState = Arc<RwLock<VectorLiteClient>>;
 
 // Helper functions
-fn parse_index_type(index_type: &str) -> Result<IndexType, String> {
+fn parse_index_type(index_type: &str) -> VectorLiteResult<IndexType> {
     match index_type.to_lowercase().as_str() {
         "flat" => Ok(IndexType::Flat),
         "hnsw" => Ok(IndexType::HNSW),
-        _ => Err(format!("Invalid index type: {}. Must be 'flat' or 'hnsw'", index_type)),
+        _ => Err(VectorLiteError::InvalidIndexType { index_type: index_type.to_string() }),
     }
 }
 
-fn parse_similarity_metric(metric: &str) -> Result<SimilarityMetric, String> {
+fn parse_similarity_metric(metric: &str) -> VectorLiteResult<SimilarityMetric> {
     match metric.to_lowercase().as_str() {
         "cosine" => Ok(SimilarityMetric::Cosine),
         "euclidean" => Ok(SimilarityMetric::Euclidean),
         "manhattan" => Ok(SimilarityMetric::Manhattan),
         "dotproduct" => Ok(SimilarityMetric::DotProduct),
-        _ => Err(format!("Invalid similarity metric: {}. Must be 'cosine', 'euclidean', 'manhattan', or 'dotproduct'", metric)),
+        _ => Err(VectorLiteError::InvalidSimilarityMetric { metric: metric.to_string() }),
     }
 }
 
@@ -208,8 +209,8 @@ async fn create_collection(
 ) -> Result<Json<CreateCollectionResponse>, StatusCode> {
     let index_type = match parse_index_type(&payload.index_type) {
         Ok(t) => t,
-        Err(_) => {
-            return Err(StatusCode::BAD_REQUEST);
+        Err(e) => {
+            return Err(e.status_code());
         }
     };
 
@@ -223,7 +224,7 @@ async fn create_collection(
         }
         Err(e) => {
             error!("Failed to create collection '{}': {}", payload.name, e);
-            Err(StatusCode::BAD_REQUEST)
+            Err(e.status_code())
         }
     }
 }
@@ -238,7 +239,7 @@ async fn get_collection_info(
             info: Some(info),
             message: "Collection info retrieved successfully".to_string(),
         })),
-        Err(_) => Err(StatusCode::NOT_FOUND),
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -254,7 +255,7 @@ async fn delete_collection(
                 message: format!("Collection '{}' deleted successfully", collection_name),
             }))
         }
-        Err(_) => Err(StatusCode::NOT_FOUND),
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -273,12 +274,7 @@ async fn add_text(
             }))
         }
         Err(e) => {
-            // Check if it's a dimension mismatch error (bad request) vs collection not found
-            if e.contains("dimension") || e.contains("size") {
-                Err(StatusCode::BAD_REQUEST)
-            } else {
-                Err(StatusCode::NOT_FOUND)
-            }
+            Err(e.status_code())
         }
     }
 }
@@ -302,12 +298,7 @@ async fn add_vector(
             }))
         }
         Err(e) => {
-            // Check if it's a dimension mismatch error (bad request) vs collection not found
-            if e.contains("dimension") || e.contains("size") {
-                Err(StatusCode::BAD_REQUEST)
-            } else {
-                Err(StatusCode::NOT_FOUND)
-            }
+            Err(e.status_code())
         }
     }
 }
@@ -321,8 +312,8 @@ async fn search_text(
     let similarity_metric = match payload.similarity_metric {
         Some(metric) => match parse_similarity_metric(&metric) {
             Ok(m) => m,
-            Err(_) => {
-                return Err(StatusCode::BAD_REQUEST);
+            Err(e) => {
+                return Err(e.status_code());
             }
         },
         None => SimilarityMetric::Cosine,
@@ -337,7 +328,7 @@ async fn search_text(
                 message: "Search completed successfully".to_string(),
             }))
         }
-        Err(_) => Err(StatusCode::NOT_FOUND),
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -350,8 +341,8 @@ async fn search_vector(
     let similarity_metric = match payload.similarity_metric {
         Some(metric) => match parse_similarity_metric(&metric) {
             Ok(m) => m,
-            Err(_) => {
-                return Err(StatusCode::BAD_REQUEST);
+            Err(e) => {
+                return Err(e.status_code());
             }
         },
         None => SimilarityMetric::Cosine,
@@ -366,7 +357,7 @@ async fn search_vector(
                 message: "Vector search completed successfully".to_string(),
             }))
         }
-        Err(_) => Err(StatusCode::NOT_FOUND),
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -385,8 +376,8 @@ async fn get_vector(
         Ok(None) => {
             Err(StatusCode::NOT_FOUND)
         }
-        Err(_) => {
-            Err(StatusCode::NOT_FOUND)
+        Err(e) => {
+            Err(e.status_code())
         }
     }
 }
@@ -403,8 +394,8 @@ async fn delete_vector(
                 "message": "Vector deleted successfully"
             })))
         }
-        Err(_) => {
-            Err(StatusCode::NOT_FOUND)
+        Err(e) => {
+            Err(e.status_code())
         }
     }
 }
@@ -452,8 +443,8 @@ async fn load_collection(
     // Load the collection from file
     let collection = match crate::Collection::load_from_file(&file_path) {
         Ok(collection) => collection,
-        Err(_) => {
-            return Err(StatusCode::NOT_FOUND);
+        Err(e) => {
+            return Err(VectorLiteError::from(e).status_code());
         }
     };
 
