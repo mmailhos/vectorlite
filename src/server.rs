@@ -449,10 +449,9 @@ async fn load_collection(
         Ok(collection) => collection,
         Err(e) => {
             // Check if it's a file not found error
-            if let crate::persistence::PersistenceError::Io(io_err) = &e {
-                if io_err.kind() == std::io::ErrorKind::NotFound {
-                    return Err(VectorLiteError::FileNotFound(format!("File not found: {}", payload.file_path)).status_code());
-                }
+            if let crate::persistence::PersistenceError::Io(io_err) = &e
+                && io_err.kind() == std::io::ErrorKind::NotFound {
+                return Err(VectorLiteError::FileNotFound(format!("File not found: {}", payload.file_path)).status_code());
             }
             return Err(VectorLiteError::from(e).status_code());
         }
@@ -479,7 +478,7 @@ async fn load_collection(
     let new_collection = crate::Collection::new(collection_name.clone(), index);
     
     // Add the collection to the client
-    if let Err(_) = client.add_collection(new_collection) {
+    if client.add_collection(new_collection).is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     
