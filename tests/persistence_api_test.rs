@@ -232,13 +232,7 @@ async fn test_save_nonexistent_collection() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // The response should indicate failure
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let response_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(response_json["success"], false);
-    assert!(response_json["message"].as_str().unwrap().contains("not found"));
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -264,11 +258,5 @@ async fn test_load_nonexistent_file() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    // The response should indicate failure
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let response_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(response_json["success"], false);
-    assert!(response_json["message"].as_str().unwrap().contains("Failed to load"));
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

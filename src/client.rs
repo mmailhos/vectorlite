@@ -38,6 +38,7 @@ use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::path::Path;
 use crate::{VectorIndexWrapper, VectorIndex, Vector, SearchResult, SimilarityMetric, EmbeddingFunction, PersistenceError, save_collection_to_file, load_collection_from_file};
+use crate::errors::{VectorLiteError, VectorLiteResult};
 
 /// Main client for interacting with VectorLite
 ///
@@ -79,9 +80,9 @@ impl VectorLiteClient {
         }
     }
 
-    pub fn create_collection(&mut self, name: &str, index_type: IndexType) -> Result<(), String> {
+    pub fn create_collection(&mut self, name: &str, index_type: IndexType) -> VectorLiteResult<()> {
         if self.collections.contains_key(name) {
-            return Err(format!("Collection '{}' already exists", name));
+            return Err(VectorLiteError::CollectionAlreadyExists { name: name.to_string() });
         }
 
         let dimension = self.embedding_function.dimension();
@@ -108,11 +109,11 @@ impl VectorLiteClient {
         self.collections.keys().cloned().collect()
     }
 
-    pub fn delete_collection(&mut self, name: &str) -> Result<(), String> {
+    pub fn delete_collection(&mut self, name: &str) -> VectorLiteResult<()> {
         if self.collections.remove(name).is_some() {
             Ok(())
         } else {
-            Err(format!("Collection '{}' not found", name))
+            Err(VectorLiteError::CollectionNotFound { name: name.to_string() })
         }
     }
 
@@ -120,60 +121,60 @@ impl VectorLiteClient {
         self.collections.contains_key(name)
     }
 
-    pub fn add_text_to_collection(&self, collection_name: &str, text: &str) -> Result<u64, String> {
+    pub fn add_text_to_collection(&self, collection_name: &str, text: &str) -> VectorLiteResult<u64> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.add_text(text, self.embedding_function.as_ref())
     }
 
-    pub fn add_vector_to_collection(&self, collection_name: &str, vector: Vector) -> Result<(), String> {
+    pub fn add_vector_to_collection(&self, collection_name: &str, vector: Vector) -> VectorLiteResult<()> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.add_vector(vector)
     }
 
-    pub fn search_text_in_collection(&self, collection_name: &str, query_text: &str, k: usize, similarity_metric: SimilarityMetric) -> Result<Vec<SearchResult>, String> {
+    pub fn search_text_in_collection(&self, collection_name: &str, query_text: &str, k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.search_text(query_text, k, similarity_metric, self.embedding_function.as_ref())
     }
 
-    pub fn search_vector_in_collection(&self, collection_name: &str, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Result<Vec<SearchResult>, String> {
+    pub fn search_vector_in_collection(&self, collection_name: &str, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.search_vector(query_vector, k, similarity_metric)
     }
 
-    pub fn delete_from_collection(&self, collection_name: &str, id: u64) -> Result<(), String> {
+    pub fn delete_from_collection(&self, collection_name: &str, id: u64) -> VectorLiteResult<()> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.delete(id)
     }
 
-    pub fn get_vector_from_collection(&self, collection_name: &str, id: u64) -> Result<Option<Vector>, String> {
+    pub fn get_vector_from_collection(&self, collection_name: &str, id: u64) -> VectorLiteResult<Option<Vector>> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.get_vector(id)
     }
 
-    pub fn get_collection_info(&self, collection_name: &str) -> Result<CollectionInfo, String> {
+    pub fn get_collection_info(&self, collection_name: &str) -> VectorLiteResult<CollectionInfo> {
         let collection = self.collections.get(collection_name)
-            .ok_or_else(|| format!("Collection '{}' not found", collection_name))?;
+            .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
         collection.get_info()
     }
 
     /// Add a collection directly (used for loading from files)
-    pub fn add_collection(&mut self, collection: Collection) -> Result<(), String> {
+    pub fn add_collection(&mut self, collection: Collection) -> VectorLiteResult<()> {
         let name = collection.name().to_string();
         if self.collections.contains_key(&name) {
-            return Err(format!("Collection '{}' already exists", name));
+            return Err(VectorLiteError::CollectionAlreadyExists { name });
         }
         self.collections.insert(name, Arc::new(collection));
         Ok(())
@@ -303,53 +304,83 @@ impl Collection {
         }
     }
 
-    pub fn add_text(&self, text: &str, embedding_function: &dyn EmbeddingFunction) -> Result<u64, String> {
+    pub fn add_text(&self, text: &str, embedding_function: &dyn EmbeddingFunction) -> VectorLiteResult<u64> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         
         // Generate embedding outside the lock
-        let embedding = embedding_function.generate_embedding(text)
-            .map_err(|e| e.to_string())?;
+        let embedding = embedding_function.generate_embedding(text)?;
         
         let vector = Vector { id, values: embedding, metadata: None };
+        let vector_dimension = vector.values.len();
+        let vector_id = vector.id;
         
         // Acquire write lock only for the index operation
-        let mut index = self.index.write().map_err(|_| "Failed to acquire write lock")?;
-        index.add(vector)?;
+        let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for add_text".to_string()))?;
+        index.add(vector).map_err(|e| {
+            if e.contains("dimension") {
+                VectorLiteError::DimensionMismatch { 
+                    expected: index.dimension(), 
+                    actual: vector_dimension 
+                }
+            } else if e.contains("already exists") {
+                VectorLiteError::DuplicateVectorId { id: vector_id }
+            } else {
+                VectorLiteError::InternalError(e)
+            }
+        })?;
         Ok(id)
     }
 
-    pub fn add_vector(&self, vector: Vector) -> Result<(), String> {
-        let mut index = self.index.write().map_err(|_| "Failed to acquire write lock")?;
-        index.add(vector)
+    pub fn add_vector(&self, vector: Vector) -> VectorLiteResult<()> {
+        let vector_dimension = vector.values.len();
+        let vector_id = vector.id;
+        let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for add_vector".to_string()))?;
+        index.add(vector).map_err(|e| {
+            if e.contains("dimension") {
+                VectorLiteError::DimensionMismatch { 
+                    expected: index.dimension(), 
+                    actual: vector_dimension 
+                }
+            } else if e.contains("already exists") {
+                VectorLiteError::DuplicateVectorId { id: vector_id }
+            } else {
+                VectorLiteError::InternalError(e)
+            }
+        })
     }
 
-    pub fn delete(&self, id: u64) -> Result<(), String> {
-        let mut index = self.index.write().map_err(|_| "Failed to acquire write lock")?;
-        index.delete(id)
+    pub fn delete(&self, id: u64) -> VectorLiteResult<()> {
+        let mut index = self.index.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for delete".to_string()))?;
+        index.delete(id).map_err(|e| {
+            if e.contains("does not exist") {
+                VectorLiteError::VectorNotFound { id }
+            } else {
+                VectorLiteError::InternalError(e)
+            }
+        })
     }
 
-    pub fn search_text(&self, query_text: &str, k: usize, similarity_metric: SimilarityMetric, embedding_function: &dyn EmbeddingFunction) -> Result<Vec<SearchResult>, String> {
+    pub fn search_text(&self, query_text: &str, k: usize, similarity_metric: SimilarityMetric, embedding_function: &dyn EmbeddingFunction) -> VectorLiteResult<Vec<SearchResult>> {
         // Generate embedding outside the lock
-        let query_embedding = embedding_function.generate_embedding(query_text)
-            .map_err(|e| e.to_string())?;
+        let query_embedding = embedding_function.generate_embedding(query_text)?;
         
         // Acquire read lock for search
-        let index = self.index.read().map_err(|_| "Failed to acquire read lock")?;
+        let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_text".to_string()))?;
         Ok(index.search(&query_embedding, k, similarity_metric))
     }
 
-    pub fn search_vector(&self, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Result<Vec<SearchResult>, String> {
-        let index = self.index.read().map_err(|_| "Failed to acquire read lock")?;
+    pub fn search_vector(&self, query_vector: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
+        let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_vector".to_string()))?;
         Ok(index.search(query_vector, k, similarity_metric))
     }
 
-    pub fn get_vector(&self, id: u64) -> Result<Option<Vector>, String> {
-        let index = self.index.read().map_err(|_| "Failed to acquire read lock")?;
+    pub fn get_vector(&self, id: u64) -> VectorLiteResult<Option<Vector>> {
+        let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_vector".to_string()))?;
         Ok(index.get_vector(id).cloned())
     }
 
-    pub fn get_info(&self) -> Result<CollectionInfo, String> {
-        let index = self.index.read().map_err(|_| "Failed to acquire read lock")?;
+    pub fn get_info(&self) -> VectorLiteResult<CollectionInfo> {
+        let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_info".to_string()))?;
         Ok(CollectionInfo {
             name: self.name.clone(),
             count: index.len(),
@@ -498,7 +529,7 @@ mod tests {
         // Try to create duplicate
         let result = client.create_collection("test_collection", IndexType::Flat);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("already exists"));
+        assert!(matches!(result.unwrap_err(), VectorLiteError::CollectionAlreadyExists { .. }));
     }
 
     #[test]
@@ -571,7 +602,7 @@ mod tests {
         // Try to add to non-existent collection
         let result = client.add_text_to_collection("non_existent", "Hello world");
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
+        assert!(matches!(result.unwrap_err(), VectorLiteError::CollectionNotFound { .. }));
     }
 
     #[test]
