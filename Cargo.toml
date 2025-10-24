@@ -1,6 +1,6 @@
 [package]
 name = "vectorlite"
-version = "0.1.5"
+version = "0.1.4"
 edition = "2024"
 description = "A high-performance, in-memory vector database optimized for AI agent workloads"
 license = "Apache-2.0"
