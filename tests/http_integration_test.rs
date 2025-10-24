@@ -69,7 +69,6 @@ async fn test_list_collections_empty() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["collections"].as_array().unwrap().is_empty());
 }
 
@@ -95,7 +94,6 @@ async fn test_create_collection() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["message"].as_str().unwrap().contains("created successfully"));
 }
 
@@ -129,12 +127,7 @@ async fn test_create_duplicate_collection() {
         .unwrap();
 
     let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(!json["success"].as_bool().unwrap());
-    assert!(json["message"].as_str().unwrap().contains("already exists"));
+    assert_eq!(response.status(), StatusCode::CONFLICT);
 }
 
 #[tokio::test]
@@ -154,7 +147,6 @@ async fn test_get_collection_info() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert_eq!(json["info"]["name"], "test_collection");
     assert_eq!(json["info"]["count"], 0);
     assert!(json["info"]["is_empty"].as_bool().unwrap());
@@ -182,7 +174,6 @@ async fn test_add_text_to_collection() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert_eq!(json["id"], 0);
     assert!(json["message"].as_str().unwrap().contains("added successfully"));
 }
@@ -210,7 +201,6 @@ async fn test_add_vector_to_collection() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["message"].as_str().unwrap().contains("added successfully"));
 }
 
@@ -239,7 +229,6 @@ async fn test_search_text() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["results"].is_array());
     assert_eq!(json["results"].as_array().unwrap().len(), 1);
     assert_eq!(json["results"][0]["id"], 0);
@@ -270,7 +259,6 @@ async fn test_search_vector() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["results"].is_array());
     assert_eq!(json["results"].as_array().unwrap().len(), 1);
     assert_eq!(json["results"][0]["id"], 0);
@@ -294,7 +282,6 @@ async fn test_get_vector() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert_eq!(json["vector"]["id"], 0);
     assert_eq!(json["vector"]["values"], json!([1.0, 2.0, 3.0]));
 }
@@ -317,7 +304,6 @@ async fn test_delete_vector() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["message"].as_str().unwrap().contains("deleted successfully"));
 }
 
@@ -338,6 +324,5 @@ async fn test_delete_collection() {
 
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["success"].as_bool().unwrap());
     assert!(json["message"].as_str().unwrap().contains("deleted successfully"));
 }

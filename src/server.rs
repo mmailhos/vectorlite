@@ -68,6 +68,7 @@ use tower_http::trace::TraceLayer;
 use tracing::{info, error};
 
 use crate::{VectorLiteClient, Vector, SearchResult, SimilarityMetric, IndexType};
+use crate::errors::{VectorLiteError, VectorLiteResult};
 
 // Request/Response types
 #[derive(Debug, Deserialize)]
@@ -78,7 +79,6 @@ pub struct CreateCollectionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct CreateCollectionResponse {
-    pub success: bool,
     pub message: String,
 }
 
@@ -89,7 +89,6 @@ pub struct AddTextRequest {
 
 #[derive(Debug, Serialize)]
 pub struct AddTextResponse {
-    pub success: bool,
     pub id: Option<u64>,
     pub message: String,
 }
@@ -102,7 +101,6 @@ pub struct AddVectorRequest {
 
 #[derive(Debug, Serialize)]
 pub struct AddVectorResponse {
-    pub success: bool,
     pub message: String,
 }
 
@@ -122,27 +120,23 @@ pub struct SearchVectorRequest {
 
 #[derive(Debug, Serialize)]
 pub struct SearchResponse {
-    pub success: bool,
     pub results: Option<Vec<SearchResult>>,
     pub message: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct CollectionInfoResponse {
-    pub success: bool,
     pub info: Option<crate::client::CollectionInfo>,
     pub message: String,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ListCollectionsResponse {
-    pub success: bool,
     pub collections: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct ErrorResponse {
-    pub success: bool,
     pub message: String,
 }
 
@@ -153,7 +147,6 @@ pub struct SaveCollectionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct SaveCollectionResponse {
-    pub success: bool,
     pub message: String,
     pub file_path: Option<String>,
 }
@@ -166,7 +159,6 @@ pub struct LoadCollectionRequest {
 
 #[derive(Debug, Serialize)]
 pub struct LoadCollectionResponse {
-    pub success: bool,
     pub message: String,
     pub collection_name: Option<String>,
 }
@@ -175,21 +167,21 @@ pub struct LoadCollectionResponse {
 pub type AppState = Arc<RwLock<VectorLiteClient>>;
 
 // Helper functions
-fn parse_index_type(index_type: &str) -> Result<IndexType, String> {
+fn parse_index_type(index_type: &str) -> VectorLiteResult<IndexType> {
     match index_type.to_lowercase().as_str() {
         "flat" => Ok(IndexType::Flat),
         "hnsw" => Ok(IndexType::HNSW),
-        _ => Err(format!("Invalid index type: {}. Must be 'flat' or 'hnsw'", index_type)),
+        _ => Err(VectorLiteError::InvalidIndexType { index_type: index_type.to_string() }),
     }
 }
 
-fn parse_similarity_metric(metric: &str) -> Result<SimilarityMetric, String> {
+fn parse_similarity_metric(metric: &str) -> VectorLiteResult<SimilarityMetric> {
     match metric.to_lowercase().as_str() {
         "cosine" => Ok(SimilarityMetric::Cosine),
         "euclidean" => Ok(SimilarityMetric::Euclidean),
         "manhattan" => Ok(SimilarityMetric::Manhattan),
         "dotproduct" => Ok(SimilarityMetric::DotProduct),
-        _ => Err(format!("Invalid similarity metric: {}. Must be 'cosine', 'euclidean', 'manhattan', or 'dotproduct'", metric)),
+        _ => Err(VectorLiteError::InvalidSimilarityMetric { metric: metric.to_string() }),
     }
 }
 
@@ -207,7 +199,6 @@ async fn list_collections(
     let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let collections = client.list_collections();
     Ok(Json(ListCollectionsResponse {
-        success: true,
         collections,
     }))
 }
@@ -219,10 +210,7 @@ async fn create_collection(
     let index_type = match parse_index_type(&payload.index_type) {
         Ok(t) => t,
         Err(e) => {
-            return Ok(Json(CreateCollectionResponse {
-                success: false,
-                message: e,
-            }));
+            return Err(e.status_code());
         }
     };
 
@@ -231,16 +219,12 @@ async fn create_collection(
         Ok(_) => {
             info!("Created collection: {}", payload.name);
             Ok(Json(CreateCollectionResponse {
-                success: true,
                 message: format!("Collection '{}' created successfully", payload.name),
             }))
         }
         Err(e) => {
             error!("Failed to create collection '{}': {}", payload.name, e);
-            Ok(Json(CreateCollectionResponse {
-                success: false,
-                message: e,
-            }))
+            Err(e.status_code())
         }
     }
 }
@@ -252,15 +236,10 @@ async fn get_collection_info(
     let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     match client.get_collection_info(&collection_name) {
         Ok(info) => Ok(Json(CollectionInfoResponse {
-            success: true,
             info: Some(info),
             message: "Collection info retrieved successfully".to_string(),
         })),
-        Err(e) => Ok(Json(CollectionInfoResponse {
-            success: false,
-            info: None,
-            message: e,
-        })),
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -273,17 +252,10 @@ async fn delete_collection(
         Ok(_) => {
             info!("Deleted collection: {}", collection_name);
             Ok(Json(CreateCollectionResponse {
-                success: true,
                 message: format!("Collection '{}' deleted successfully", collection_name),
             }))
         }
-        Err(e) => {
-            error!("Failed to delete collection '{}': {}", collection_name, e);
-            Ok(Json(CreateCollectionResponse {
-                success: false,
-                message: e,
-            }))
-        }
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -297,18 +269,12 @@ async fn add_text(
         Ok(id) => {
             info!("Added text to collection '{}' with ID: {}", collection_name, id);
             Ok(Json(AddTextResponse {
-                success: true,
                 id: Some(id),
                 message: "Text added successfully".to_string(),
             }))
         }
         Err(e) => {
-            error!("Failed to add text to collection '{}': {}", collection_name, e);
-            Ok(Json(AddTextResponse {
-                success: false,
-                id: None,
-                message: e,
-            }))
+            Err(e.status_code())
         }
     }
 }
@@ -328,16 +294,11 @@ async fn add_vector(
         Ok(_) => {
             info!("Added vector to collection '{}' with ID: {}", collection_name, payload.id);
             Ok(Json(AddVectorResponse {
-                success: true,
                 message: "Vector added successfully".to_string(),
             }))
         }
         Err(e) => {
-            error!("Failed to add vector to collection '{}': {}", collection_name, e);
-            Ok(Json(AddVectorResponse {
-                success: false,
-                message: e,
-            }))
+            Err(e.status_code())
         }
     }
 }
@@ -352,11 +313,7 @@ async fn search_text(
         Some(metric) => match parse_similarity_metric(&metric) {
             Ok(m) => m,
             Err(e) => {
-                return Ok(Json(SearchResponse {
-                    success: false,
-                    results: None,
-                    message: e,
-                }));
+                return Err(e.status_code());
             }
         },
         None => SimilarityMetric::Cosine,
@@ -367,19 +324,11 @@ async fn search_text(
         Ok(results) => {
             info!("Search completed for collection '{}' with {} results", collection_name, results.len());
             Ok(Json(SearchResponse {
-                success: true,
                 results: Some(results),
                 message: "Search completed successfully".to_string(),
             }))
         }
-        Err(e) => {
-            error!("Search failed for collection '{}': {}", collection_name, e);
-            Ok(Json(SearchResponse {
-                success: false,
-                results: None,
-                message: e,
-            }))
-        }
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -393,11 +342,7 @@ async fn search_vector(
         Some(metric) => match parse_similarity_metric(&metric) {
             Ok(m) => m,
             Err(e) => {
-                return Ok(Json(SearchResponse {
-                    success: false,
-                    results: None,
-                    message: e,
-                }));
+                return Err(e.status_code());
             }
         },
         None => SimilarityMetric::Cosine,
@@ -408,19 +353,11 @@ async fn search_vector(
         Ok(results) => {
             info!("Vector search completed for collection '{}' with {} results", collection_name, results.len());
             Ok(Json(SearchResponse {
-                success: true,
                 results: Some(results),
                 message: "Vector search completed successfully".to_string(),
             }))
         }
-        Err(e) => {
-            error!("Vector search failed for collection '{}': {}", collection_name, e);
-            Ok(Json(SearchResponse {
-                success: false,
-                results: None,
-                message: e,
-            }))
-        }
+        Err(e) => Err(e.status_code()),
     }
 }
 
@@ -432,23 +369,15 @@ async fn get_vector(
     match client.get_vector_from_collection(&collection_name, vector_id) {
         Ok(Some(vector)) => {
             Ok(Json(serde_json::json!({
-                "success": true,
                 "vector": vector,
                 "message": "Vector retrieved successfully"
             })))
         }
         Ok(None) => {
-            Ok(Json(serde_json::json!({
-                "success": false,
-                "message": "Vector not found"
-            })))
+            Err(StatusCode::NOT_FOUND)
         }
         Err(e) => {
-            error!("Failed to get vector {} from collection '{}': {}", vector_id, collection_name, e);
-            Ok(Json(serde_json::json!({
-                "success": false,
-                "message": e
-            })))
+            Err(e.status_code())
         }
     }
 }
@@ -462,16 +391,11 @@ async fn delete_vector(
         Ok(_) => {
             info!("Deleted vector {} from collection '{}'", vector_id, collection_name);
             Ok(Json(serde_json::json!({
-                "success": true,
                 "message": "Vector deleted successfully"
             })))
         }
         Err(e) => {
-            error!("Failed to delete vector {} from collection '{}': {}", vector_id, collection_name, e);
-            Ok(Json(serde_json::json!({
-                "success": false,
-                "message": e
-            })))
+            Err(e.status_code())
         }
     }
 }
@@ -487,11 +411,7 @@ async fn save_collection(
     let collection = match client.get_collection(&collection_name) {
         Some(collection) => collection,
         None => {
-            return Ok(Json(SaveCollectionResponse {
-                success: false,
-                message: format!("Collection '{}' not found", collection_name),
-                file_path: None,
-            }));
+            return Err(StatusCode::NOT_FOUND);
         }
     };
 
@@ -503,18 +423,12 @@ async fn save_collection(
         Ok(_) => {
             info!("Saved collection '{}' to file: {}", collection_name, payload.file_path);
             Ok(Json(SaveCollectionResponse {
-                success: true,
                 message: format!("Collection '{}' saved successfully", collection_name),
                 file_path: Some(payload.file_path),
             }))
         }
-        Err(e) => {
-            error!("Failed to save collection '{}' to '{}': {}", collection_name, payload.file_path, e);
-            Ok(Json(SaveCollectionResponse {
-                success: false,
-                message: format!("Failed to save collection: {}", e),
-                file_path: None,
-            }))
+        Err(_) => {
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -530,12 +444,13 @@ async fn load_collection(
     let collection = match crate::Collection::load_from_file(&file_path) {
         Ok(collection) => collection,
         Err(e) => {
-            error!("Failed to load collection from '{}': {}", payload.file_path, e);
-            return Ok(Json(LoadCollectionResponse {
-                success: false,
-                message: format!("Failed to load collection: {}", e),
-                collection_name: None,
-            }));
+            // Check if it's a file not found error
+            if let crate::persistence::PersistenceError::Io(io_err) = &e {
+                if io_err.kind() == std::io::ErrorKind::NotFound {
+                    return Err(VectorLiteError::FileNotFound(format!("File not found: {}", payload.file_path)).status_code());
+                }
+            }
+            return Err(VectorLiteError::from(e).status_code());
         }
     };
 
@@ -547,11 +462,7 @@ async fn load_collection(
     
     // Check if collection already exists
     if client.has_collection(&collection_name) {
-        return Ok(Json(LoadCollectionResponse {
-            success: false,
-            message: format!("Collection '{}' already exists. Use a different name or delete the existing collection first.", collection_name),
-            collection_name: None,
-        }));
+        return Err(StatusCode::CONFLICT);
     }
 
     // Extract the index from the loaded collection
@@ -564,18 +475,12 @@ async fn load_collection(
     let new_collection = crate::Collection::new(collection_name.clone(), index);
     
     // Add the collection to the client
-    if let Err(e) = client.add_collection(new_collection) {
-        error!("Failed to add collection '{}': {}", collection_name, e);
-        return Ok(Json(LoadCollectionResponse {
-            success: false,
-            message: format!("Failed to add collection: {}", e),
-            collection_name: None,
-        }));
+    if let Err(_) = client.add_collection(new_collection) {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
     
     info!("Loaded collection '{}' from file: {}", collection_name, payload.file_path);
     Ok(Json(LoadCollectionResponse {
-        success: true,
         message: format!("Collection '{}' loaded successfully", collection_name),
         collection_name: Some(collection_name),
     }))
