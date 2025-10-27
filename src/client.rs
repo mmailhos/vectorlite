@@ -139,19 +139,16 @@ impl VectorLiteClient {
         let collection = self.collections.get(collection_name)
             .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
-        // If no metric provided, try to get it from the index (HNSW)
         let metric = match similarity_metric {
             Some(m) => m,
             None => {
-                // Try to get metric from the index itself
                 let index_guard = collection.index.read().map_err(|_| {
                     VectorLiteError::LockError("Failed to acquire read lock for metric detection".to_string())
                 })?;
                 
-                // Check if this is an HNSW index with a specific metric
                 match index_guard.metric() {
                     Some(m) => m,
-                    None => SimilarityMetric::Cosine, // Default for Flat index
+                    None => SimilarityMetric::Cosine, 
                 }
             }
         };
@@ -765,7 +762,7 @@ mod tests {
         // Create a separate embedding function for testing
         let test_embedding_fn = MockEmbeddingFunction::new(3);
         
-        // Test search on original collection using text search (must match index metric)
+        // Test search on original collection using text search 
         let results = collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap(); // SimilarityMetric kept for backward compatibility in Collection API
         assert_eq!(results.len(), 1);
         
@@ -788,7 +785,7 @@ mod tests {
         assert_eq!(info.dimension, 3);
         assert!(!info.is_empty);
         
-        // Test search functionality using text search (must match index metric)
+        // Test search functionality using text search
         let results = loaded_collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap(); // SimilarityMetric kept for backward compatibility in Collection API
         assert_eq!(results.len(), 1);
     }
