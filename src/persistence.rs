@@ -272,7 +272,7 @@ mod tests {
         let file_path = temp_dir.path().join("test_hnsw_collection.vlc");
         
         // Create HNSW collection
-        let hnsw_index = HNSWIndex::new(3);
+        let hnsw_index = HNSWIndex::new(3, SimilarityMetric::Euclidean);
         let index = VectorIndexWrapper::HNSW(Box::new(hnsw_index));
         
         let collection = Collection::new("test_hnsw_collection".to_string(), index);

@@ -47,7 +47,7 @@ use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
 
-// Separate structure for metadata only - no embedding values
+// VectorMetadata contains the metadata for a vector without the embedding values
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VectorMetadata {
     text: String,
@@ -55,6 +55,15 @@ struct VectorMetadata {
 }
 #[derive(Default, Clone)]
 struct Euclidean;
+
+#[derive(Default, Clone)]
+struct Cosine;
+
+#[derive(Default, Clone)]
+struct Manhattan;
+
+#[derive(Default, Clone)]
+struct DotProduct;
 
 const MAXIMUM_NUMBER_CONNECTIONS: usize = if cfg!(feature = "memory-optimized") {
     8
@@ -86,14 +95,87 @@ impl Metric<Vec<f64>> for Euclidean {
     }
 }
 
+impl Metric<Vec<f64>> for Cosine {
+    type Unit = u64;
+    
+    fn distance(&self, a: &Vec<f64>, b: &Vec<f64>) -> Self::Unit {
+        // Cosine distance = 1 - cosine_similarity
+        let (dot, norm_a_sq, norm_b_sq) = a.iter()
+            .zip(b.iter())
+            .fold((0.0, 0.0, 0.0), |(dot, a_sq, b_sq), (&x, &y)| {
+                (dot + x * y, a_sq + x * x, b_sq + y * y)
+            });
+        
+        let norm_a = norm_a_sq.sqrt();
+        let norm_b = norm_b_sq.sqrt();
+        
+        if norm_a == 0.0 || norm_b == 0.0 {
+            return 1000; // Maximum distance for zero vectors
+        }
+        
+        let cosine_sim = dot / (norm_a * norm_b);
+        // Convert to distance: (1 - similarity) * 1000
+        let distance = (1.0 - cosine_sim) * 1000.0;
+        distance as u64
+    }
+}
+
+impl Metric<Vec<f64>> for Manhattan {
+    type Unit = u64;
+    
+    fn distance(&self, a: &Vec<f64>, b: &Vec<f64>) -> Self::Unit {
+        let dist = a.iter()
+            .zip(b.iter())
+            .map(|(&x, &y)| (x - y).abs())
+            .sum::<f64>();
+        (dist * 1000.0) as u64
+    }
+}
+
+impl Metric<Vec<f64>> for DotProduct {
+    type Unit = u64;
+    
+    fn distance(&self, a: &Vec<f64>, b: &Vec<f64>) -> Self::Unit {
+        // Dot product as distance (negative because higher dot product = smaller distance)
+        let dot = a.iter()
+            .zip(b.iter())
+            .map(|(&x, &y)| x * y)
+            .sum::<f64>();
+        // Convert to positive distance: 1000 - dot (clamped)
+        let normalized = (1000.0 - dot.max(-1000.0).min(1000.0)) as u64;
+        normalized
+    }
+}
+
+/// Enum to hold different HNSW index types for different metrics
+#[derive(Clone)]
+enum HNSWIndexInternal {
+    Euclidean {
+        hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
+        searcher: Searcher<u64>,
+    },
+    Cosine {
+        hnsw: Hnsw<Cosine, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
+        searcher: Searcher<u64>,
+    },
+    Manhattan {
+        hnsw: Hnsw<Manhattan, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
+        searcher: Searcher<u64>,
+    },
+    DotProduct {
+        hnsw: Hnsw<DotProduct, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
+        searcher: Searcher<u64>,
+    },
+}
+
 #[derive(Clone, Serialize)]
 pub struct HNSWIndex {
     #[serde(skip)]
-    hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0>,
-    #[serde(skip)]
-    searcher: Searcher<u64>,
+    index_internal: HNSWIndexInternal,
 
     dim: usize,
+    // The similarity metric this index was optimized for
+    metric: SimilarityMetric,
     // Mapping from custom ID to internal HNSW index
     id_to_index: HashMap<u64, usize>,
     // Mapping from internal HNSW index to custom ID
@@ -106,21 +188,54 @@ pub struct HNSWIndex {
 }
 
 impl HNSWIndex {
-    pub fn new(dim: usize) -> Self {
+    pub fn new(dim: usize, metric: SimilarityMetric) -> Self {
         if dim == 0 {
             panic!("HNSW index dimension cannot be 0");
         }
-        let hnsw: Hnsw<Euclidean, Vec<f64>, StdRng, MAXIMUM_NUMBER_CONNECTIONS, MAXIMUM_NUMBER_CONNECTIONS_0> = Hnsw::new(Euclidean);
-        let searcher = Searcher::new();
+        
+        // Create HNSW with the specific metric for its graph structure.
+        // This ensures the HNSW graph is optimized for the intended similarity metric.
+        let index_internal = match metric {
+            SimilarityMetric::Euclidean => {
+                HNSWIndexInternal::Euclidean {
+                    hnsw: Hnsw::new(Euclidean),
+                    searcher: Searcher::new(),
+                }
+            },
+            SimilarityMetric::Cosine => {
+                HNSWIndexInternal::Cosine {
+                    hnsw: Hnsw::new(Cosine),
+                    searcher: Searcher::new(),
+                }
+            },
+            SimilarityMetric::Manhattan => {
+                HNSWIndexInternal::Manhattan {
+                    hnsw: Hnsw::new(Manhattan),
+                    searcher: Searcher::new(),
+                }
+            },
+            SimilarityMetric::DotProduct => {
+                HNSWIndexInternal::DotProduct {
+                    hnsw: Hnsw::new(DotProduct),
+                    searcher: Searcher::new(),
+                }
+            },
+        };
+        
         Self { 
-            hnsw, 
-            searcher, 
+            index_internal,
             dim,
+            metric,
             id_to_index: HashMap::new(),
             index_to_id: HashMap::new(),
             metadata: HashMap::new(),
             vector_values: HashMap::new(),
         }
+    }
+    
+    /// Get the metric this index was built for
+    pub fn metric(&self) -> SimilarityMetric {
+        self.metric
     }
 
     /// Get the maximum ID from the stored vectors
@@ -137,18 +252,51 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         #[derive(Deserialize)]
         struct Temp {
             dim: usize,
+            #[serde(default)]  // Default to Euclidean for backward compatibility
+            metric: SimilarityMetric,
             metadata: HashMap<u64, VectorMetadata>,
             vector_values: HashMap<u64, Vec<f64>>,
         }
         
         let data = Temp::deserialize(deserializer)?;
         
-        let mut hnsw = Hnsw::new(Euclidean);
-        let mut searcher = Searcher::new();
+        // Verify that the HNSW index was created with the correct dimension
+        if data.dim == 0 {
+            return Err(serde::de::Error::custom("Invalid dimension: cannot be 0"));
+        }
+        
+        // Create the appropriate HNSW index based on the metric
+        let mut index_internal = match data.metric {
+            SimilarityMetric::Euclidean => {
+                HNSWIndexInternal::Euclidean {
+                    hnsw: Hnsw::new(Euclidean),
+                    searcher: Searcher::new(),
+                }
+            },
+            SimilarityMetric::Cosine => {
+                HNSWIndexInternal::Cosine {
+                    hnsw: Hnsw::new(Cosine),
+                    searcher: Searcher::new(),
+                }
+            },
+            SimilarityMetric::Manhattan => {
+                HNSWIndexInternal::Manhattan {
+                    hnsw: Hnsw::new(Manhattan),
+                    searcher: Searcher::new(),
+                }
+            },
+            SimilarityMetric::DotProduct => {
+                HNSWIndexInternal::DotProduct {
+                    hnsw: Hnsw::new(DotProduct),
+                    searcher: Searcher::new(),
+                }
+            },
+        };
         
         let mut new_id_to_index = HashMap::new();
         let mut new_index_to_id = HashMap::new();
         
+        // Insert all vectors into the appropriate HNSW index
         for (id, values) in &data.vector_values {
             if values.len() != data.dim {
                 return Err(serde::de::Error::custom(format!(
@@ -156,20 +304,30 @@ impl<'de> Deserialize<'de> for HNSWIndex {
                     data.dim, values.len()
                 )));
             }
-            let internal_index = hnsw.insert(values.clone(), &mut searcher);
+            
+            let internal_index = match &mut index_internal {
+                HNSWIndexInternal::Euclidean { hnsw, searcher } => {
+                    hnsw.insert(values.clone(), searcher)
+                },
+                HNSWIndexInternal::Cosine { hnsw, searcher } => {
+                    hnsw.insert(values.clone(), searcher)
+                },
+                HNSWIndexInternal::Manhattan { hnsw, searcher } => {
+                    hnsw.insert(values.clone(), searcher)
+                },
+                HNSWIndexInternal::DotProduct { hnsw, searcher } => {
+                    hnsw.insert(values.clone(), searcher)
+                },
+            };
+            
             new_id_to_index.insert(*id, internal_index);
             new_index_to_id.insert(internal_index, *id);
         }
         
-        // Verify that the HNSW index was created with the correct dimension
-        if data.dim == 0 {
-            return Err(serde::de::Error::custom("Invalid dimension: cannot be 0"));
-        }
-        
         Ok(HNSWIndex {
-            hnsw,
-            searcher,
+            index_internal,
             dim: data.dim,
+            metric: data.metric,
             id_to_index: new_id_to_index,
             index_to_id: new_index_to_id,
             metadata: data.metadata,
@@ -188,8 +346,20 @@ impl VectorIndex for HNSWIndex {
             return Err(format!("Vector ID {} already exists", vector.id));
         }
         
-        // Store the embedding in HNSW (takes ownership, no clone needed)
-        let internal_index = self.hnsw.insert(vector.values.clone(), &mut self.searcher);
+        let internal_index = match &mut self.index_internal {
+            HNSWIndexInternal::Euclidean { hnsw, searcher } => {
+                hnsw.insert(vector.values.clone(), searcher)
+            },
+            HNSWIndexInternal::Cosine { hnsw, searcher } => {
+                hnsw.insert(vector.values.clone(), searcher)
+            },
+            HNSWIndexInternal::Manhattan { hnsw, searcher } => {
+                hnsw.insert(vector.values.clone(), searcher)
+            },
+            HNSWIndexInternal::DotProduct { hnsw, searcher } => {
+                hnsw.insert(vector.values.clone(), searcher)
+            },
+        };
         
         // Store metadata and values separately
         let vector_metadata = VectorMetadata {
@@ -221,7 +391,14 @@ impl VectorIndex for HNSWIndex {
     }
     fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult> {
         if query.len() != self.dim {
-            eprintln!("Warning: Query dimension mismatch. Expected {}, got {}. Returning empty results.", self.dim, query.len());
+            eprintln!("Error: Query dimension mismatch. Expected {}, got {}. Returning empty results.", self.dim, query.len());
+            return Vec::new();
+        }
+        
+        // Reject searches that don't match the metric the index was built for
+        // HNSW's graph structure is optimized for a specific distance metric
+        if similarity_metric != self.metric {
+            eprintln!("Error: HNSW index was built for {:?} similarity, but search requested {:?}. Search rejected.", self.metric, similarity_metric);
             return Vec::new();
         }
         
@@ -230,12 +407,7 @@ impl VectorIndex for HNSWIndex {
         }
         
         let query_vec = query.to_vec();
-        
-        let mut searcher: Searcher<u64> = Searcher::new();
-        // HNSW searches for k*2 candidates to improve accuracy in approximate search.
-        // This compensates for the graph structure limitations and ensures we find
-        // the best k results after recalculating with the requested similarity metric.
-        let max_candidates = std::cmp::min(k * 2, self.metadata.len());
+        let max_candidates = std::cmp::min(k, self.metadata.len());
         if max_candidates == 0 {
             return Vec::new();
         }
@@ -248,15 +420,36 @@ impl VectorIndex for HNSWIndex {
             max_candidates
         ];
         
-        let results = self.hnsw.nearest(&query_vec, max_candidates, &mut searcher, &mut neighbors);
+        // Use the appropriate HNSW index based on the metric
+        let results = match &self.index_internal {
+            HNSWIndexInternal::Euclidean { hnsw, .. } => {
+                let mut searcher: Searcher<u64> = Searcher::new();
+                hnsw.nearest(&query_vec, max_candidates, &mut searcher, &mut neighbors)
+            },
+            HNSWIndexInternal::Cosine { hnsw, .. } => {
+                let mut searcher: Searcher<u64> = Searcher::new();
+                hnsw.nearest(&query_vec, max_candidates, &mut searcher, &mut neighbors)
+            },
+            HNSWIndexInternal::Manhattan { hnsw, .. } => {
+                let mut searcher: Searcher<u64> = Searcher::new();
+                hnsw.nearest(&query_vec, max_candidates, &mut searcher, &mut neighbors)
+            },
+            HNSWIndexInternal::DotProduct { hnsw, .. } => {
+                let mut searcher: Searcher<u64> = Searcher::new();
+                hnsw.nearest(&query_vec, max_candidates, &mut searcher, &mut neighbors)
+            },
+        };
         
-        // Get candidate vectors and recalculate with the requested similarity metric
+        // Now that HNSW uses the correct metric internally, we can directly use the results
+        // and convert distances to similarity scores
         let mut search_results: Vec<SearchResult> = results.iter()
             .filter(|n| n.index != !0) // Filter out invalid results
             .filter_map(|n| {
                 self.index_to_id.get(&n.index).and_then(|&custom_id| {
                     self.metadata.get(&custom_id).and_then(|meta| {
                         self.vector_values.get(&custom_id).map(|values| {
+                            // Calculate similarity score from the distance
+                            // The HNSW returns distances, we need to convert to similarity
                             let score = similarity_metric.calculate(values, query);
                             SearchResult { 
                                 id: custom_id, 
@@ -309,14 +502,14 @@ impl Debug for HNSWIndex {
 }
 #[test]
 fn test_create_hnswindex() {
-    let hnsw = HNSWIndex::new(3);
+    let hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     assert!(hnsw.is_empty());
     assert_eq!(hnsw.dimension(), 3);
 }
 
 #[test]
 fn test_add_vector() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     let vector = Vector {
         id: 1,
         values: vec![1.0, 2.0, 3.0],
@@ -331,7 +524,7 @@ fn test_add_vector() {
 
 #[test]
 fn test_add_vector_dimension_mismatch() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     let vector = Vector {
         id: 1,
         values: vec![1.0, 2.0], // Wrong dimension
@@ -345,7 +538,7 @@ fn test_add_vector_dimension_mismatch() {
 
 #[test]
 fn test_search_basic() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     
     let vectors = vec![
         Vector { id: 1, values: vec![1.0, 0.0, 0.0], text: "test".to_string(), metadata: None },
@@ -375,7 +568,7 @@ fn test_search_basic() {
 
 #[test]
 fn test_search_empty_index() {
-    let hnsw = HNSWIndex::new(3);
+    let hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     let query = vec![1.0, 2.0, 3.0];
     let results = hnsw.search(&query, 5, SimilarityMetric::Euclidean);
     
@@ -384,7 +577,7 @@ fn test_search_empty_index() {
 
 #[test]
 fn test_id_mapping() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     
     // Add vectors with custom IDs
     let vectors = vec![
@@ -416,7 +609,7 @@ fn test_id_mapping() {
 
 #[test]
 fn test_duplicate_id_error() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     
     let vector1 = Vector { id: 1, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None };
     let vector2 = Vector { id: 1, values: vec![4.0, 5.0, 6.0], text: "test".to_string(), metadata: None }; // Same ID
@@ -427,7 +620,7 @@ fn test_duplicate_id_error() {
 
 #[test]
 fn test_delete_vector() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     
     let vector = Vector { id: 42, values: vec![1.0, 2.0, 3.0], text: "test".to_string(), metadata: None };
     assert!(hnsw.add(vector).is_ok());
@@ -446,7 +639,7 @@ fn test_delete_vector() {
 fn test_feature_flags() {
     // Test that the constants are properly set based on features
     // This test will only pass if the correct feature is enabled
-    let hnsw = HNSWIndex::new(3);
+    let hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     
     // Verify the HNSW was created successfully
     assert!(hnsw.is_empty());
@@ -461,7 +654,7 @@ fn test_serialization_deserialization() {
     use serde_json;
     
     // Create an HNSW index with some data
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     let vectors = vec![
         Vector { id: 1, values: vec![1.0, 0.0, 0.0], text: "test".to_string(), metadata: None },
         Vector { id: 2, values: vec![0.0, 1.0, 0.0], text: "test".to_string(), metadata: None },
@@ -534,7 +727,7 @@ fn test_empty_hnsw_serialization_deserialization() {
     use serde_json;
     
     // Create an empty HNSW index
-    let empty_hnsw = HNSWIndex::new(3);
+    let empty_hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     assert!(empty_hnsw.is_empty());
     assert_eq!(empty_hnsw.dimension(), 3);
     
@@ -555,7 +748,7 @@ fn test_empty_hnsw_serialization_deserialization() {
 
 #[test]
 fn test_search_with_limited_vectors() {
-    let mut hnsw = HNSWIndex::new(3);
+    let mut hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
     
     // Add only 3 vectors
     let vectors = vec![

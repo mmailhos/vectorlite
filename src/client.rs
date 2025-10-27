@@ -81,6 +81,11 @@ impl VectorLiteClient {
     }
 
     pub fn create_collection(&mut self, name: &str, index_type: IndexType) -> VectorLiteResult<()> {
+        // Default to Euclidean metric for backward compatibility
+        self.create_collection_with_metric(name, index_type, SimilarityMetric::Euclidean)
+    }
+
+    pub fn create_collection_with_metric(&mut self, name: &str, index_type: IndexType, metric: SimilarityMetric) -> VectorLiteResult<()> {
         if self.collections.contains_key(name) {
             return Err(VectorLiteError::CollectionAlreadyExists { name: name.to_string() });
         }
@@ -88,7 +93,9 @@ impl VectorLiteClient {
         let dimension = self.embedding_function.dimension();
         let index = match index_type {
             IndexType::Flat => VectorIndexWrapper::Flat(crate::FlatIndex::new(dimension, Vec::new())),
-            IndexType::HNSW => VectorIndexWrapper::HNSW(Box::new(crate::HNSWIndex::new(dimension))),
+            // HNSW creates an optimized graph structure for the specified metric.
+            // All searches must use the same metric as the index was built with.
+            IndexType::HNSW => VectorIndexWrapper::HNSW(Box::new(crate::HNSWIndex::new(dimension, metric))),
         };
 
         let collection = Collection {

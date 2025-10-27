@@ -336,7 +336,7 @@ impl VectorIndex for VectorIndexWrapper {
 /// let cosine_score = SimilarityMetric::Cosine.calculate(&a, &b);
 /// let euclidean_score = SimilarityMetric::Euclidean.calculate(&a, &b);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum SimilarityMetric {
     /// Cosine similarity - scale-invariant, good for normalized embeddings
     /// Range: [-1, 1], where 1 is identical
