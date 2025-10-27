@@ -65,10 +65,10 @@ docker build \
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
 | **Health**            | `GET /health`                             | –                                                                  |
 | **List collections**  | `GET /collections`                        | –                                                                  |
-| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw"}`                           |
+| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw", "metric": "cosine"}` (metric optional) |
 | **Delete collection** | `DELETE /collections/{name}`              | –                                                                  |
 | **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world", "metadata": {...}}`|
-| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`                                       |
+| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}` (metric auto-detected for HNSW)       |
 | **Get vector**        | `GET /collections/{name}/vectors/{id}`    | –                                                                  |
 | **Delete vector**     | `DELETE /collections/{name}/vectors/{id}` | –                                                                  |
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |
@@ -83,7 +83,7 @@ docker build \
 
 See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320).
 
-Note: HNSW indices must specify a similarity metric at creation and search with the same metric.
+Note: Flat indices support all metrics dynamically. HNSW indices default to Cosine if not specified.
 
 ### Configuration profiles for HNSW
 
@@ -111,9 +111,10 @@ use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetr
 use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+    let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 
-    client.create_collection_with_metric("quotes", IndexType::HNSW, SimilarityMetric::Cosine)?;
+    // Metric optional - defaults to Cosine for HNSW
+    client.create_collection("quotes", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
     
     let id = client.add_text_to_collection(
         "quotes", 
@@ -125,11 +126,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
     )?;
 
+    // Metric optional - auto-detected from HNSW index
     let results = client.search_text_in_collection(
         "quotes",
         "beach games",
         3,
-        SimilarityMetric::Cosine,
+        None,
     )?;
 
     for result in &results {
