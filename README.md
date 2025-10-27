@@ -83,7 +83,7 @@ docker build \
 
 See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320).
 
-Note: Flat indices support all metrics dynamically. HNSW indices default to Cosine if not specified.
+Note: Flat indices support all metrics dynamically. HNSW index must be created with a default distance metric (`cosine`, `euclidean`, `manhattan` or `dotproduct`). 
 
 ### Configuration profiles for HNSW
 
