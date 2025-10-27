@@ -45,7 +45,7 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
-//!     client.create_collection("quotes", IndexType::HNSW)?;
+//!     client.create_collection("quotes", IndexType::HNSW, SimilarityMetric::Cosine)?;
 //!     
 //!     let id = client.add_text_to_collection(
 //!         "quotes", 

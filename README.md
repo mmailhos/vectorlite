@@ -83,6 +83,8 @@ docker build \
 
 See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320).
 
+Note: HNSW indices must specify a similarity metric at creation and search with the same metric.
+
 ### Configuration profiles for HNSW
 
 | Profile              | Features                         | Use Case                       |
@@ -111,7 +113,7 @@ use serde_json::json;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 
-    client.create_collection("quotes", IndexType::HNSW)?;
+    client.create_collection_with_metric("quotes", IndexType::HNSW, SimilarityMetric::Cosine)?;
     
     let id = client.add_text_to_collection(
         "quotes", 

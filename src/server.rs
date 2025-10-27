@@ -73,6 +73,8 @@ use crate::errors::{VectorLiteError, VectorLiteResult};
 pub struct CreateCollectionRequest {
     pub name: String,
     pub index_type: String, // "flat" or "hnsw"
+    #[serde(default)]
+    pub metric: String, // "cosine", "euclidean", "manhattan", "dotproduct"
 }
 
 #[derive(Debug, Serialize)]
@@ -192,8 +194,20 @@ async fn create_collection(
         }
     };
 
+    // Parse metric, default to cosine if not provided
+    let metric = if payload.metric.is_empty() {
+        SimilarityMetric::Cosine  // Default to cosine if not provided
+    } else {
+        match parse_similarity_metric(&payload.metric) {
+            Ok(m) => m,
+            Err(e) => {
+                return Err(e.status_code());
+            }
+        }
+    };
+
     let mut client = state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.create_collection(&payload.name, index_type) {
+    match client.create_collection(&payload.name, index_type, metric) {
         Ok(_) => {
             info!("Created collection: {}", payload.name);
             Ok(Json(CreateCollectionResponse {
