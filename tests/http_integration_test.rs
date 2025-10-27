@@ -133,7 +133,7 @@ async fn test_create_duplicate_collection() {
 #[tokio::test]
 async fn test_get_collection_info() {
     let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat, Some(vectorlite::SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("test_collection", vectorlite::IndexType::Flat, None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let request = Request::builder()
@@ -155,7 +155,7 @@ async fn test_get_collection_info() {
 #[tokio::test]
 async fn test_add_text_to_collection() {
     let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat, Some(vectorlite::SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("test_collection", vectorlite::IndexType::Flat, None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let payload = json!({
@@ -181,7 +181,7 @@ async fn test_add_text_to_collection() {
 #[tokio::test]
 async fn test_search_text() {
     let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat, Some(vectorlite::SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("test_collection", vectorlite::IndexType::Flat, None).unwrap();
     client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
@@ -212,7 +212,7 @@ async fn test_search_text() {
 #[tokio::test]
 async fn test_get_vector() {
     let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat, Some(vectorlite::SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("test_collection", vectorlite::IndexType::Flat, None).unwrap();
     client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
@@ -234,7 +234,7 @@ async fn test_get_vector() {
 #[tokio::test]
 async fn test_delete_vector() {
     let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat, Some(vectorlite::SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("test_collection", vectorlite::IndexType::Flat, None).unwrap();
     client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
@@ -255,7 +255,7 @@ async fn test_delete_vector() {
 #[tokio::test]
 async fn test_delete_collection() {
     let mut client = create_test_client();
-    client.create_collection("test_collection", vectorlite::IndexType::Flat, Some(vectorlite::SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("test_collection", vectorlite::IndexType::Flat, None).unwrap();
     let app = create_app(std::sync::Arc::new(std::sync::RwLock::new(client)));
 
     let request = Request::builder()

@@ -535,7 +535,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        let result = client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean));
+        let result = client.create_collection("test_collection", IndexType::Flat, None);
         assert!(result.is_ok());
         
         // Check collection exists
@@ -549,10 +549,10 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create first collection
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Try to create duplicate
-        let result = client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean));
+        let result = client.create_collection("test_collection", IndexType::Flat, None);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), VectorLiteError::CollectionAlreadyExists { .. }));
     }
@@ -563,7 +563,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Get collection
         let collection = client.get_collection("test_collection");
@@ -581,7 +581,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         assert!(client.has_collection("test_collection"));
         
         // Delete collection
@@ -600,7 +600,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Add text
         let result = client.add_text_to_collection("test_collection", "Hello world", None);
@@ -636,7 +636,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Test initial state
         let info = client.get_collection_info("test_collection").unwrap();
@@ -711,7 +711,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection and add some data
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
         client.add_text_to_collection("test_collection", "Another text", None).unwrap();
         
@@ -795,7 +795,8 @@ mod tests {
         let embedding_fn = MockEmbeddingFunction::new(3);
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
-        client.create_collection("test_collection", IndexType::Flat, Some(SimilarityMetric::Euclidean)).unwrap();
+        // Flat indexes don't need a metric parameter
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
         
         let collection = client.get_collection("test_collection").unwrap();
