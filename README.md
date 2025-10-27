@@ -65,10 +65,10 @@ docker build \
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
 | **Health**            | `GET /health`                             | –                                                                  |
 | **List collections**  | `GET /collections`                        | –                                                                  |
-| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw", "metric": "cosine"}` (metric optional) |
+| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw", "metric": "cosine"}`|
 | **Delete collection** | `DELETE /collections/{name}`              | –                                                                  |
 | **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world", "metadata": {...}}`|
-| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}` (metric auto-detected for HNSW)       |
+| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`     |
 | **Get vector**        | `GET /collections/{name}/vectors/{id}`    | –                                                                  |
 | **Delete vector**     | `DELETE /collections/{name}/vectors/{id}` | –                                                                  |
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |

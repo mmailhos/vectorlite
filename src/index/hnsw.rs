@@ -209,8 +209,7 @@ pub struct HNSWIndex {
     index_to_id: HashMap<usize, u64>,
     // Store only metadata (text + JSON), not the full Vector
     metadata: HashMap<u64, VectorMetadata>,
-    // Store vector values separately for similarity calculations
-    // This is still more memory efficient than storing full Vector structs
+    // Store vector values separately
     vector_values: HashMap<u64, Vec<f64>>,
 }
 
