@@ -134,6 +134,7 @@ pub use embeddings::{EmbeddingGenerator, EmbeddingFunction};
 pub use client::{VectorLiteClient, Collection, Settings, IndexType};
 pub use server::{create_app, start_server};
 pub use persistence::{PersistenceError, save_collection_to_file, load_collection_from_file};
+pub use errors::{VectorLiteError, VectorLiteResult};
 
 use serde::{Serialize, Deserialize};
 
@@ -228,7 +229,7 @@ pub trait VectorIndex {
     fn delete(&mut self, id: u64) -> Result<(), String>;
     
     /// Search for the k most similar vectors
-    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult>;
+    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>>;
     
     /// Get the number of vectors in the index
     fn len(&self) -> usize;
@@ -289,7 +290,7 @@ impl VectorIndex for VectorIndexWrapper {
         }
     }
 
-    fn search(&self, query: &[f64], k: usize, s: SimilarityMetric) -> Vec<SearchResult> {
+    fn search(&self, query: &[f64], k: usize, s: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
         match self {
             VectorIndexWrapper::Flat(index) => index.search(query, k, s),
             VectorIndexWrapper::HNSW(index) => index.search(query, k, s),
@@ -685,7 +686,7 @@ mod tests {
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
-        let results = store.search(&query, 2, SimilarityMetric::Cosine);
+        let results = store.search(&query, 2, SimilarityMetric::Cosine).unwrap();
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 0);
@@ -717,7 +718,7 @@ mod tests {
         
         // Test search through the wrapper
         let query = vec![1.1, 0.1, 0.1];
-        let results = deserialized.search(&query, 1, SimilarityMetric::Cosine);
+        let results = deserialized.search(&query, 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 1);
     }

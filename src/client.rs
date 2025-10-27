@@ -92,7 +92,8 @@ impl VectorLiteClient {
             },
             IndexType::HNSW => {
                 // HNSW requires a metric to build the graph structure
-                let used_metric = metric.unwrap_or(SimilarityMetric::Cosine); // Default to Cosine
+                // No default is provided to force explicit specification
+                let used_metric = metric.ok_or(VectorLiteError::MetricRequired)?;
                 VectorIndexWrapper::HNSW(Box::new(crate::HNSWIndex::new(dimension, used_metric)))
             },
         };
@@ -395,7 +396,8 @@ impl Collection {
         
         // Acquire read lock for search
         let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_text".to_string()))?;
-        Ok(index.search(&query_embedding, k, similarity_metric))
+
+        index.search(&query_embedding, k, similarity_metric) 
     }
 
 
@@ -703,7 +705,21 @@ mod tests {
         assert_eq!(results.len(), 1);
     }
 
+    #[test]
+    fn test_hnsw_requires_metric() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
 
+        // Creating HNSW without metric should fail
+        let result = client.create_collection("hnsw_collection", IndexType::HNSW, None);
+        assert!(result.is_err());
+        match result {
+            Err(VectorLiteError::MetricRequired) => {
+                // Expected error
+            }
+            _ => panic!("Expected MetricRequired error when creating HNSW without metric"),
+        }
+    }
 
     #[test]
     fn test_collection_save_and_load() {
@@ -763,7 +779,7 @@ mod tests {
         let test_embedding_fn = MockEmbeddingFunction::new(3);
         
         // Test search on original collection using text search 
-        let results = collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap(); // SimilarityMetric kept for backward compatibility in Collection API
+        let results = collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 1);
         
         // Save to temporary file
@@ -786,7 +802,7 @@ mod tests {
         assert!(!info.is_empty);
         
         // Test search functionality using text search
-        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap(); // SimilarityMetric kept for backward compatibility in Collection API
+        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 1);
     }
 

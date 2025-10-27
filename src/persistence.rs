@@ -229,7 +229,7 @@ mod tests {
         assert_eq!(index.dimension(), 3);
         
         // Test search functionality
-        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine);
+        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 0);
     }
@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(index.dimension(), 3);
         
         // Test search
-        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine);
+        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 0);
     }

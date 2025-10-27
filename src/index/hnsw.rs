@@ -69,7 +69,7 @@ fn convert_distance_to_similarity(distance: f64, metric: SimilarityMetric) -> f6
             // So: dot_product = 1000 - distance
             // We want similarity to range [0, 1] where higher dot product = higher similarity
             // Convert: similarity = (1000 - distance) / 1000, normalized to [0, 1]
-            ((1000.0 - distance) / 1000.0).max(0.0).min(1.0)
+            ((1000.0 - distance) / 1000.0).clamp(0.0, 1.0)
         },
     }
 }
@@ -169,8 +169,7 @@ impl Metric<Vec<f64>> for DotProduct {
             .map(|(&x, &y)| x * y)
             .sum::<f64>();
         // Convert to positive distance: 1000 - dot (clamped)
-        let normalized = (1000.0 - dot.max(-1000.0).min(1000.0)) as u64;
-        normalized
+        (1000.0 - dot.clamp(-1000.0, 1000.0)) as u64
     }
 }
 
@@ -278,7 +277,6 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         #[derive(Deserialize)]
         struct Temp {
             dim: usize,
-            #[serde(default)]  // Default to Euclidean for backward compatibility
             metric: SimilarityMetric,
             metadata: HashMap<u64, VectorMetadata>,
             vector_values: HashMap<u64, Vec<f64>>,
@@ -414,27 +412,31 @@ impl VectorIndex for HNSWIndex {
         
         Ok(())
     }
-    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult> {
+    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Result<Vec<SearchResult>, crate::errors::VectorLiteError> {
         if query.len() != self.dim {
-            eprintln!("Error: Query dimension mismatch. Expected {}, got {}. Returning empty results.", self.dim, query.len());
-            return Vec::new();
+            return Err(crate::errors::VectorLiteError::DimensionMismatch { 
+                expected: self.dim, 
+                actual: query.len() 
+            });
         }
         
         // Reject searches that don't match the metric the index was built for
         // HNSW's graph structure is optimized for a specific distance metric
         if similarity_metric != self.metric {
-            eprintln!("Error: HNSW index was built for {:?} similarity, but search requested {:?}. Search rejected.", self.metric, similarity_metric);
-            return Vec::new();
+            return Err(crate::errors::VectorLiteError::MetricMismatch { 
+                requested: similarity_metric,
+                index: self.metric 
+            });
         }
         
         if self.metadata.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         
         let query_vec = query.to_vec();
         let max_candidates = std::cmp::min(k, self.metadata.len());
         if max_candidates == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         
         let mut neighbors = vec![
@@ -490,7 +492,7 @@ impl VectorIndex for HNSWIndex {
         // Sort by similarity score and take top k
         search_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         search_results.truncate(k);
-        search_results
+        Ok(search_results)
     }
     fn len(&self) -> usize {
         self.metadata.len()
@@ -579,7 +581,7 @@ fn test_search_basic() {
     
     // Search for vector similar to [1.0, 0.0, 0.0]
     let query = vec![1.1, 0.1, 0.1];
-    let results = hnsw.search(&query, 2, SimilarityMetric::Euclidean);
+    let results = hnsw.search(&query, 2, SimilarityMetric::Euclidean).unwrap();
     
     assert!(!results.is_empty());
     assert!(results.len() <= 2);
@@ -590,14 +592,14 @@ fn test_search_basic() {
     }
 }
 
-#[test]
-fn test_search_empty_index() {
-    let hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
-    let query = vec![1.0, 2.0, 3.0];
-    let results = hnsw.search(&query, 5, SimilarityMetric::Euclidean);
-    
-    assert!(results.is_empty());
-}
+    #[test]
+    fn test_search_empty_index() {
+        let hnsw = HNSWIndex::new(3, SimilarityMetric::Euclidean);
+        let query = vec![1.0, 2.0, 3.0];
+        let results = hnsw.search(&query, 5, SimilarityMetric::Euclidean).unwrap();
+        
+        assert!(results.is_empty());
+    }
 
 #[test]
 fn test_id_mapping() {
@@ -624,7 +626,7 @@ fn test_id_mapping() {
     
     // Test that search returns the correct custom IDs
     let query = vec![1.1, 0.1, 0.1];
-    let results = hnsw.search(&query, 2, SimilarityMetric::Euclidean);
+    let results = hnsw.search(&query, 2, SimilarityMetric::Euclidean).unwrap();
     
     assert!(!results.is_empty());
     // The first result should be the vector with ID 100 (most similar to [1.0, 0.0, 0.0])
@@ -719,7 +721,7 @@ fn test_serialization_deserialization() {
     
     let query = vec![1.1, 0.1, 0.1];
     
-    let results = deserialized.search(&query, 2, SimilarityMetric::Euclidean);
+    let results = deserialized.search(&query, 2, SimilarityMetric::Euclidean).unwrap();
     assert!(!results.is_empty(), "Search should return some results");
     assert!(results.len() <= 2, "Should return at most 2 results as requested");
     
@@ -790,7 +792,7 @@ fn test_search_with_limited_vectors() {
     // Test searching for k=4 (more than we have vectors)
     // This should not panic and should return at most 3 results
     let query = vec![1.1, 0.1, 0.1];
-    let results = hnsw.search(&query, 4, SimilarityMetric::Euclidean);
+    let results = hnsw.search(&query, 4, SimilarityMetric::Euclidean).unwrap();
     
     // Should return at most 3 results (all available vectors)
     assert!(results.len() <= 3);
@@ -864,7 +866,7 @@ mod conversion_tests {
         assert!((similarity - expected).abs() < 1e-10, "Maximum cosine distance conversion should be correct");
         
         // Verify similarity is bounded
-        assert!(similarity >= -1.0 && similarity <= 1.0, "Cosine similarity should be bounded");
+        assert!((-1.0..=1.0).contains(&similarity), "Cosine similarity should be bounded");
     }
 
     #[test]
@@ -904,14 +906,14 @@ mod conversion_tests {
         let distance = 100.0_f64;
         let similarity = convert_distance_to_similarity(distance, SimilarityMetric::DotProduct);
         let ratio: f64 = (1000.0 - 100.0) / 1000.0;
-        let expected: f64 = ratio.max(0.0).min(1.0);
+        let expected: f64 = ratio.clamp(0.0, 1.0);
         assert!((similarity - expected).abs() < 1e-10, "Small dot product distance conversion should be correct");
         
         // Test medium distance
         let distance = 500.0_f64;
         let similarity = convert_distance_to_similarity(distance, SimilarityMetric::DotProduct);
         let ratio: f64 = (1000.0 - 500.0) / 1000.0;
-        let expected: f64 = ratio.max(0.0).min(1.0);
+        let expected: f64 = ratio.clamp(0.0, 1.0);
         assert!((similarity - expected).abs() < 1e-10, "Medium dot product distance conversion should be correct");
         
         // Test maximum distance
@@ -923,7 +925,7 @@ mod conversion_tests {
         let distances = vec![0.0_f64, 100.0, 500.0, 1000.0, 1500.0, 2000.0];
         for dist in distances {
             let sim = convert_distance_to_similarity(dist, SimilarityMetric::DotProduct);
-            assert!(sim >= 0.0 && sim <= 1.0, "DotProduct similarity should be in [0, 1]");
+            assert!((0.0..=1.0).contains(&sim), "DotProduct similarity should be in [0, 1]");
         }
     }
 
