@@ -113,7 +113,6 @@ use serde_json::json;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 
-    // Metric optional - defaults to Cosine for HNSW
     client.create_collection("quotes", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
     
     let id = client.add_text_to_collection(
