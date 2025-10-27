@@ -684,8 +684,8 @@ mod tests {
         let info = client.get_collection_info("hnsw_collection").unwrap();
         assert_eq!(info.count, 2);
         
-        // Test search
-        let results = client.search_text_in_collection("hnsw_collection", "First", 1, SimilarityMetric::Cosine).unwrap();
+        // Test search with Euclidean (must match the index metric)
+        let results = client.search_text_in_collection("hnsw_collection", "First", 1, SimilarityMetric::Euclidean).unwrap();
         assert_eq!(results.len(), 1);
     }
 
@@ -748,8 +748,8 @@ mod tests {
         // Create a separate embedding function for testing
         let test_embedding_fn = MockEmbeddingFunction::new(3);
         
-        // Test search on original collection using text search (like the working test)
-        let results = collection.search_text("First", 1, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
+        // Test search on original collection using text search (must match index metric)
+        let results = collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 1);
         
         // Save to temporary file
@@ -771,8 +771,8 @@ mod tests {
         assert_eq!(info.dimension, 3);
         assert!(!info.is_empty);
         
-        // Test search functionality using text search
-        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
+        // Test search functionality using text search (must match index metric)
+        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 1);
     }
 
