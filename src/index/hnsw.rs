@@ -47,6 +47,33 @@ use space::{Metric, Neighbor};
 use hnsw::{Hnsw, Searcher};
 use crate::{Vector, VectorIndex, SearchResult, SimilarityMetric};
 
+/// Convert distance to similarity score for the given metric
+fn convert_distance_to_similarity(distance: f64, metric: SimilarityMetric) -> f64 {
+    match metric {
+        SimilarityMetric::Euclidean => {
+            // For Euclidean: similarity = 1 / (1 + distance)
+            1.0 / (1.0 + distance)
+        },
+        SimilarityMetric::Cosine => {
+            // For Cosine: distance = 1 - similarity, so similarity = 1 - distance
+            // But distance is [0, 2000] scaled, so we divide by 1000
+            let cos_distance = distance / 1000.0;
+            1.0 - cos_distance
+        },
+        SimilarityMetric::Manhattan => {
+            // For Manhattan: similarity = 1 / (1 + distance)
+            1.0 / (1.0 + distance)
+        },
+        SimilarityMetric::DotProduct => {
+            // For DotProduct: distance = 1000 - dot_product (clamped)
+            // So: dot_product = 1000 - distance
+            // We want similarity to range [0, 1] where higher dot product = higher similarity
+            // Convert: similarity = (1000 - distance) / 1000, normalized to [0, 1]
+            ((1000.0 - distance) / 1000.0).max(0.0).min(1.0)
+        },
+    }
+}
+
 // VectorMetadata contains the metadata for a vector without the embedding values
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct VectorMetadata {
@@ -440,24 +467,23 @@ impl VectorIndex for HNSWIndex {
             },
         };
         
-        // Now that HNSW uses the correct metric internally, we can directly use the results
-        // and convert distances to similarity scores
+        // Convert HNSW distances to similarity scores
+        // The HNSW returns distances in its native Unit (u64 scaled by 1000)
         let mut search_results: Vec<SearchResult> = results.iter()
             .filter(|n| n.index != !0) // Filter out invalid results
             .filter_map(|n| {
                 self.index_to_id.get(&n.index).and_then(|&custom_id| {
-                    self.metadata.get(&custom_id).and_then(|meta| {
-                        self.vector_values.get(&custom_id).map(|values| {
-                            // Calculate similarity score from the distance
-                            // The HNSW returns distances, we need to convert to similarity
-                            let score = similarity_metric.calculate(values, query);
-                            SearchResult { 
-                                id: custom_id, 
-                                score,
-                                text: meta.text.clone(),
-                                metadata: meta.metadata.clone()
-                            }
-                        })
+                    self.metadata.get(&custom_id).map(|meta| {
+                        // Convert u64 distance back to f64, then to similarity
+                        let distance = n.distance as f64 / 1000.0;
+                        let score = convert_distance_to_similarity(distance, similarity_metric);
+                        
+                        SearchResult { 
+                            id: custom_id, 
+                            score,
+                            text: meta.text.clone(),
+                            metadata: meta.metadata.clone()
+                        }
                     })
                 })
             })
