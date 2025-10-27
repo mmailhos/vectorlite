@@ -194,12 +194,12 @@ async fn create_collection(
         }
     };
 
-    // Parse metric, default to cosine if not provided
+    // Parse metric - optional for Flat index, required for HNSW
     let metric = if payload.metric.is_empty() {
-        SimilarityMetric::Cosine  // Default to cosine if not provided
+        None  // No metric specified
     } else {
         match parse_similarity_metric(&payload.metric) {
-            Ok(m) => m,
+            Ok(m) => Some(m),
             Err(e) => {
                 return Err(e.status_code());
             }
@@ -279,12 +279,12 @@ async fn search_text(
     let k = payload.k.unwrap_or(10);
     let similarity_metric = match payload.similarity_metric {
         Some(metric) => match parse_similarity_metric(&metric) {
-            Ok(m) => m,
+            Ok(m) => Some(m),
             Err(e) => {
                 return Err(e.status_code());
             }
         },
-        None => SimilarityMetric::Cosine,
+        None => None, // No metric specified - will auto-detect
     };
 
     let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

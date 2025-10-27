@@ -45,7 +45,8 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
-//!     client.create_collection("quotes", IndexType::HNSW, SimilarityMetric::Cosine)?;
+//!     // Create HNSW collection with specific metric
+//!     client.create_collection("quotes", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
 //!     
 //!     let id = client.add_text_to_collection(
 //!         "quotes", 
@@ -57,11 +58,12 @@
 //!         }))
 //!     )?;
 //!
+//!     // Search without specifying metric - automatically uses the index's metric
 //!     let results = client.search_text_in_collection(
 //!         "quotes",
 //!         "beach games",
 //!         3,
-//!         SimilarityMetric::Cosine,
+//!         None, // Auto-detects from HNSW index
 //!     )?;
 //!
 //!     for result in &results {
@@ -78,11 +80,13 @@
 //! - **Complexity**: O(n) search, O(1) insert
 //! - **Memory**: Linear with dataset size
 //! - **Use Case**: Small datasets (< 10K vectors) or exact search requirements
+//! - **Metric Flexibility**: Supports all similarity metrics dynamically
 //!
 //! ### HNSWIndex
 //! - **Complexity**: O(log n) search, O(log n) insert
 //! - **Memory**: ~2-3x vector size due to graph structure
 //! - **Use Case**: Large datasets with approximate search tolerance
+//! - **Metric Flexibility**: Built for a specific metric; searches automatically use the index's metric
 //!
 //! ## Similarity Metrics
 //!
@@ -317,6 +321,25 @@ impl VectorIndex for VectorIndexWrapper {
         match self {
             VectorIndexWrapper::Flat(index) => index.dimension(),
             VectorIndexWrapper::HNSW(index) => index.dimension(),
+        }
+    }
+}
+
+impl VectorIndexWrapper {
+    /// Get the similarity metric this index was built for (HNSW only)
+    /// Returns None for Flat indexes (which support all metrics)
+    pub fn metric(&self) -> Option<SimilarityMetric> {
+        match self {
+            VectorIndexWrapper::Flat(_) => None,
+            VectorIndexWrapper::HNSW(index) => Some(index.metric()),
+        }
+    }
+    
+    /// Get the index type
+    pub fn index_type(&self) -> IndexType {
+        match self {
+            VectorIndexWrapper::Flat(_) => IndexType::Flat,
+            VectorIndexWrapper::HNSW(_) => IndexType::HNSW,
         }
     }
 }

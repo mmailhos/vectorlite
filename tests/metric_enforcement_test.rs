@@ -85,10 +85,10 @@ fn test_client_metric_enforcement() {
     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new().unwrap()));
     
     // Create collections with different metrics
-    client.create_collection("euclidean_collection", IndexType::HNSW, SimilarityMetric::Euclidean).unwrap();
-    client.create_collection("cosine_collection", IndexType::HNSW, SimilarityMetric::Cosine).unwrap();
-    client.create_collection("manhattan_collection", IndexType::HNSW, SimilarityMetric::Manhattan).unwrap();
-    client.create_collection("dotproduct_collection", IndexType::HNSW, SimilarityMetric::DotProduct).unwrap();
+    client.create_collection("euclidean_collection", IndexType::HNSW, Some(SimilarityMetric::Euclidean)).unwrap();
+    client.create_collection("cosine_collection", IndexType::HNSW, Some(SimilarityMetric::Cosine)).unwrap();
+    client.create_collection("manhattan_collection", IndexType::HNSW, Some(SimilarityMetric::Manhattan)).unwrap();
+    client.create_collection("dotproduct_collection", IndexType::HNSW, Some(SimilarityMetric::DotProduct)).unwrap();
     
     // Add the same text to all collections
     client.add_text_to_collection("euclidean_collection", "Hello world", None).unwrap();
@@ -97,29 +97,29 @@ fn test_client_metric_enforcement() {
     client.add_text_to_collection("dotproduct_collection", "Hello world", None).unwrap();
     
     // Test that searching with the correct metric works
-    let results = client.search_text_in_collection("euclidean_collection", "hello", 1, SimilarityMetric::Euclidean).unwrap();
+    let results = client.search_text_in_collection("euclidean_collection", "hello", 1, Some(SimilarityMetric::Euclidean)).unwrap();
     assert!(!results.is_empty(), "Euclidean collection should work with Euclidean metric");
     
-    let results = client.search_text_in_collection("cosine_collection", "hello", 1, SimilarityMetric::Cosine).unwrap();
+    let results = client.search_text_in_collection("cosine_collection", "hello", 1, Some(SimilarityMetric::Cosine)).unwrap();
     assert!(!results.is_empty(), "Cosine collection should work with Cosine metric");
     
-    let results = client.search_text_in_collection("manhattan_collection", "hello", 1, SimilarityMetric::Manhattan).unwrap();
+    let results = client.search_text_in_collection("manhattan_collection", "hello", 1, Some(SimilarityMetric::Manhattan)).unwrap();
     assert!(!results.is_empty(), "Manhattan collection should work with Manhattan metric");
     
-    let results = client.search_text_in_collection("dotproduct_collection", "hello", 1, SimilarityMetric::DotProduct).unwrap();
+    let results = client.search_text_in_collection("dotproduct_collection", "hello", 1, Some(SimilarityMetric::DotProduct)).unwrap();
     assert!(!results.is_empty(), "DotProduct collection should work with DotProduct metric");
     
     // Test that searching with wrong metrics returns empty results (due to HNSW rejection)
-    let results = client.search_text_in_collection("euclidean_collection", "hello", 1, SimilarityMetric::Cosine).unwrap();
+    let results = client.search_text_in_collection("euclidean_collection", "hello", 1, Some(SimilarityMetric::Cosine)).unwrap();
     assert!(results.is_empty(), "Euclidean collection should reject Cosine metric");
     
-    let results = client.search_text_in_collection("cosine_collection", "hello", 1, SimilarityMetric::Euclidean).unwrap();
+    let results = client.search_text_in_collection("cosine_collection", "hello", 1, Some(SimilarityMetric::Euclidean)).unwrap();
     assert!(results.is_empty(), "Cosine collection should reject Euclidean metric");
     
-    let results = client.search_text_in_collection("manhattan_collection", "hello", 1, SimilarityMetric::Euclidean).unwrap();
+    let results = client.search_text_in_collection("manhattan_collection", "hello", 1, Some(SimilarityMetric::Euclidean)).unwrap();
     assert!(results.is_empty(), "Manhattan collection should reject Euclidean metric");
     
-    let results = client.search_text_in_collection("dotproduct_collection", "hello", 1, SimilarityMetric::Euclidean).unwrap();
+    let results = client.search_text_in_collection("dotproduct_collection", "hello", 1, Some(SimilarityMetric::Euclidean)).unwrap();
     assert!(results.is_empty(), "DotProduct collection should reject Euclidean metric");
 }
 
