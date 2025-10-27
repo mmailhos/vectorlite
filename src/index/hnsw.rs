@@ -286,7 +286,6 @@ impl<'de> Deserialize<'de> for HNSWIndex {
         
         let data = Temp::deserialize(deserializer)?;
         
-        // Verify that the HNSW index was created with the correct dimension
         if data.dim == 0 {
             return Err(serde::de::Error::custom("Invalid dimension: cannot be 0"));
         }
