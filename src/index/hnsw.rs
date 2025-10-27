@@ -802,3 +802,230 @@ fn test_search_with_limited_vectors() {
     }
 }
 
+/// Tests for distance to similarity conversion functions
+#[cfg(test)]
+mod conversion_tests {
+    use super::{convert_distance_to_similarity, SimilarityMetric};
+
+    #[test]
+    fn test_euclidean_distance_conversion() {
+        // Test zero distance (identical vectors)
+        let distance = 0.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Euclidean);
+        assert_eq!(similarity, 1.0, "Zero distance should give similarity of 1.0");
+        
+        // Test small distance
+        let distance = 0.5;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Euclidean);
+        let expected = 1.0 / (1.0 + 0.5);
+        assert!((similarity - expected).abs() < 1e-10, "Small distance conversion should be correct");
+        
+        // Test medium distance
+        let distance = 1.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Euclidean);
+        let expected = 1.0 / (1.0 + 1.0);
+        assert!((similarity - expected).abs() < 1e-10, "Medium distance conversion should be correct");
+        
+        // Test large distance
+        let distance = 10.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Euclidean);
+        let expected = 1.0 / (1.0 + 10.0);
+        assert!((similarity - expected).abs() < 1e-10, "Large distance conversion should be correct");
+        
+        // Test very large distance
+        let distance = 100.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Euclidean);
+        assert!(similarity > 0.0 && similarity < 0.01, "Very large distance should give very low similarity");
+    }
+
+    #[test]
+    fn test_cosine_distance_conversion() {
+        // Test zero distance (identical vectors)
+        let distance = 0.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Cosine);
+        assert_eq!(similarity, 1.0, "Zero cosine distance should give similarity of 1.0");
+        
+        // Test small distance (similar vectors)
+        let distance = 100.0; // cosine distance of 0.1 in scaled units
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Cosine);
+        let expected = 1.0 - (100.0 / 1000.0);
+        assert!((similarity - expected).abs() < 1e-10, "Small cosine distance conversion should be correct");
+        
+        // Test medium distance
+        let distance = 500.0; // cosine distance of 0.5 in scaled units
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Cosine);
+        let expected = 1.0 - (500.0 / 1000.0);
+        assert!((similarity - expected).abs() < 1e-10, "Medium cosine distance conversion should be correct");
+        
+        // Test maximum distance (opposite vectors)
+        let distance = 2000.0; // cosine distance of 2.0 in scaled units
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Cosine);
+        let expected = 1.0 - (2000.0 / 1000.0);
+        assert!((similarity - expected).abs() < 1e-10, "Maximum cosine distance conversion should be correct");
+        
+        // Verify similarity is bounded
+        assert!(similarity >= -1.0 && similarity <= 1.0, "Cosine similarity should be bounded");
+    }
+
+    #[test]
+    fn test_manhattan_distance_conversion() {
+        // Test zero distance (identical vectors)
+        let distance = 0.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Manhattan);
+        assert_eq!(similarity, 1.0, "Zero Manhattan distance should give similarity of 1.0");
+        
+        // Test small distance
+        let distance = 1.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Manhattan);
+        let expected = 1.0 / (1.0 + 1.0);
+        assert!((similarity - expected).abs() < 1e-10, "Small Manhattan distance conversion should be correct");
+        
+        // Test medium distance
+        let distance = 5.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Manhattan);
+        let expected = 1.0 / (1.0 + 5.0);
+        assert!((similarity - expected).abs() < 1e-10, "Medium Manhattan distance conversion should be correct");
+        
+        // Test large distance
+        let distance = 20.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::Manhattan);
+        let expected = 1.0 / (1.0 + 20.0);
+        assert!((similarity - expected).abs() < 1e-10, "Large Manhattan distance conversion should be correct");
+    }
+
+    #[test]
+    fn test_dotproduct_distance_conversion() {
+        // Test zero distance (maximum dot product)
+        let distance = 0.0;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::DotProduct);
+        assert_eq!(similarity, 1.0, "Zero dot product distance should give similarity of 1.0");
+        
+        // Test small distance
+        let distance = 100.0_f64;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::DotProduct);
+        let ratio: f64 = (1000.0 - 100.0) / 1000.0;
+        let expected: f64 = ratio.max(0.0).min(1.0);
+        assert!((similarity - expected).abs() < 1e-10, "Small dot product distance conversion should be correct");
+        
+        // Test medium distance
+        let distance = 500.0_f64;
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::DotProduct);
+        let ratio: f64 = (1000.0 - 500.0) / 1000.0;
+        let expected: f64 = ratio.max(0.0).min(1.0);
+        assert!((similarity - expected).abs() < 1e-10, "Medium dot product distance conversion should be correct");
+        
+        // Test maximum distance
+        let distance = 2000.0_f64; // negative dot product clamped
+        let similarity = convert_distance_to_similarity(distance, SimilarityMetric::DotProduct);
+        assert_eq!(similarity, 0.0, "Maximum dot product distance should give similarity of 0.0");
+        
+        // Test that similarity is bounded [0, 1]
+        let distances = vec![0.0_f64, 100.0, 500.0, 1000.0, 1500.0, 2000.0];
+        for dist in distances {
+            let sim = convert_distance_to_similarity(dist, SimilarityMetric::DotProduct);
+            assert!(sim >= 0.0 && sim <= 1.0, "DotProduct similarity should be in [0, 1]");
+        }
+    }
+
+    #[test]
+    fn test_conversion_monotonicity() {
+        // Test that similarity decreases monotonically with increasing distance
+        // for all metrics
+        
+        let distances = vec![0.0, 0.5, 1.0, 2.0, 5.0, 10.0];
+        
+        for metric in &[
+            SimilarityMetric::Euclidean,
+            SimilarityMetric::Cosine,
+            SimilarityMetric::Manhattan,
+        ] {
+            let mut prev_sim = 1.0;
+            for &dist in &distances {
+                let sim = convert_distance_to_similarity(dist, *metric);
+                assert!(sim <= prev_sim, 
+                    "Similarity should decrease as distance increases for {:?}", 
+                    metric);
+                prev_sim = sim;
+            }
+        }
+    }
+
+    #[test]
+    fn test_conversion_edge_cases() {
+        // Test with extremely small distances
+        for metric in &[
+            SimilarityMetric::Euclidean,
+            SimilarityMetric::Cosine,
+            SimilarityMetric::Manhattan,
+            SimilarityMetric::DotProduct,
+        ] {
+            let sim = convert_distance_to_similarity(0.0001, *metric);
+            assert!(sim > 0.9, "Extremely small distance should give high similarity");
+            assert!(sim <= 1.0, "Similarity should not exceed 1.0");
+        }
+        
+        // Test with extremely large distances
+        for metric in &[
+            SimilarityMetric::Euclidean,
+            SimilarityMetric::Manhattan,
+        ] {
+            let sim = convert_distance_to_similarity(100000.0, *metric);
+            assert!(sim > 0.0, "Even very large distance should give non-zero similarity");
+            assert!(sim < 0.01, "Very large distance should give very low similarity");
+        }
+    }
+
+    #[test]
+    fn test_conversion_known_vectors() {
+        // Test with actual vector calculations
+        
+        // Two identical vectors should have high similarity
+        let identical_distance_euclidean = 0.0;
+        let identical_distance_cosine = 0.0;
+        
+        let euclidean_sim = convert_distance_to_similarity(identical_distance_euclidean, SimilarityMetric::Euclidean);
+        let cosine_sim = convert_distance_to_similarity(identical_distance_cosine, SimilarityMetric::Cosine);
+        
+        assert_eq!(euclidean_sim, 1.0);
+        assert_eq!(cosine_sim, 1.0);
+        
+        // Opposite vectors (for cosine): [1,0,0] and [-1,0,0]
+        // Cosine distance = 2 (in raw form) = 2000 (scaled by 1000)
+        let opposite_distance = 2000.0;
+        let cosine_sim = convert_distance_to_similarity(opposite_distance, SimilarityMetric::Cosine);
+        assert!((cosine_sim - (-1.0)).abs() < 0.01, "Opposite vectors should have negative cosine similarity");
+        
+        // Perpendicular vectors: [1,0] and [0,1]
+        // Cosine distance ≈ 1 = 1000 (scaled)
+        let perpendicular_distance = 1000.0;
+        let cosine_sim = convert_distance_to_similarity(perpendicular_distance, SimilarityMetric::Cosine);
+        assert!((cosine_sim - 0.0).abs() < 0.01, "Perpendicular vectors should have cosine similarity ≈ 0");
+    }
+
+    #[test]
+    fn test_scaling_factor_documentation() {
+        // Verify the scaling factors used in the conversions
+        // This helps document the behavior for future reference
+        
+        // Cosine: scaled by 1000.0
+        // Maximum cosine distance is 2.0 (raw) = 2000 (scaled)
+        let max_cosine_distance = 2000.0;
+        let min_cosine_sim = convert_distance_to_similarity(max_cosine_distance, SimilarityMetric::Cosine);
+        assert_eq!(min_cosine_sim, -1.0, "Maximum cosine distance should yield similarity of -1.0");
+        
+        // DotProduct: scaled by 1000.0
+        // Maximum distance is when dot product is at minimum (negative)
+        let max_dotproduct_distance = 2000.0;
+        let min_dotproduct_sim = convert_distance_to_similarity(max_dotproduct_distance, SimilarityMetric::DotProduct);
+        assert_eq!(min_dotproduct_sim, 0.0, "Maximum dot product distance should yield similarity of 0.0");
+        
+        // Euclidean and Manhattan use 1/(1+distance) formula
+        // They don't have a hard upper bound but should approach 0
+        let large_distance = 1000.0;
+        let large_euclidean_sim = convert_distance_to_similarity(large_distance, SimilarityMetric::Euclidean);
+        let large_manhattan_sim = convert_distance_to_similarity(large_distance, SimilarityMetric::Manhattan);
+        assert!(large_euclidean_sim < 0.01 && large_euclidean_sim > 0.0);
+        assert!(large_manhattan_sim < 0.01 && large_manhattan_sim > 0.0);
+    }
+}
+
