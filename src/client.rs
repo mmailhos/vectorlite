@@ -88,7 +88,6 @@ impl VectorLiteClient {
         let dimension = self.embedding_function.dimension();
         let index = match index_type {
             IndexType::Flat => {
-                // Flat index supports all metrics, so we don't need to store one
                 VectorIndexWrapper::Flat(crate::FlatIndex::new(dimension, Vec::new()))
             },
             IndexType::HNSW => {
