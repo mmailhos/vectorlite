@@ -5,6 +5,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Tests](https://github.com/mmailhos/vectorlite/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/mmailhos/vectorlite/actions)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0.3-green.svg)](docs/openapi.yaml)
 
 **A tiny, in-process Rust vector store with built-in embeddings for sub-millisecond semantic search.**
 
@@ -61,20 +62,24 @@ docker build \
 ```
 
 ## HTTP API Overview
+
 | Operation             | Method & Endpoint                         | Body                                                               |
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
 | **Health**            | `GET /health`                             | –                                                                  |
 | **List collections**  | `GET /collections`                        | –                                                                  |
-| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw"}`                           |
+| **Create collection** | `POST /collections`                       | `{"name": "docs", "index_type": "hnsw", "metric": "cosine"}`|
 | **Delete collection** | `DELETE /collections/{name}`              | –                                                                  |
 | **Add text**          | `POST /collections/{name}/text`           | `{"text": "Hello world", "metadata": {...}}`|
-| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`                                       |
+| **Search (text)**     | `POST /collections/{name}/search/text`    | `{"query": "hello", "k": 5}`     |
 | **Get vector**        | `GET /collections/{name}/vectors/{id}`    | –                                                                  |
 | **Delete vector**     | `DELETE /collections/{name}/vectors/{id}` | –                                                                  |
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |
 | **Load collection**   | `POST /collections/load`                  | `{"file_path": "./collection.vlc", "collection_name": "restored"}` |
 
+
 ## Index Types
+
+VectorLite supports 2 indexes: **Flat** and **HNSW**.
 
 | Index    | Search Complexity | Insert   | Use Case                              |
 | -------- | ----------------- | -------- | ------------------------------------- |
@@ -97,6 +102,9 @@ cargo build --features memory-optimized
 
 
 ### Similarity Metrics
+
+A flat index is the most flexible as it allows for all search metric operations. On the other hand, the HNSW index is specifically optimised for a specific distance metric, which will be used for all search operations. When creating a HNSW index, provide a `metric` value with one of: `cosine`, `euclidean`, `manhattan` or `dotproduct`.
+
 - **Cosine**: Default for normalized embeddings, scale-invariant
 - **Euclidean**: Geometric distance, sensitive to vector magnitude
 - **Manhattan**: L1 norm, robust to outliers
@@ -109,9 +117,9 @@ use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetr
 use serde_json::json;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
+    let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 
-    client.create_collection("quotes", IndexType::HNSW)?;
+    client.create_collection("quotes", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
     
     let id = client.add_text_to_collection(
         "quotes", 
@@ -123,11 +131,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
     )?;
 
+    // Metric optional - auto-detected from HNSW index
     let results = client.search_text_in_collection(
         "quotes",
         "beach games",
         3,
-        SimilarityMetric::Cosine,
+        None,
     )?;
 
     for result in &results {

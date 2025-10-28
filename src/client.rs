@@ -17,7 +17,7 @@
 //! let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
 //! // Create a collection
-//! client.create_collection("documents", IndexType::HNSW)?;
+//! client.create_collection("documents", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
 //!
 //! // Add text (auto-generates embedding)
 //! let id = client.add_text_to_collection("documents", "Hello world", None)?;
@@ -27,7 +27,7 @@
 //!     "documents", 
 //!     "hello", 
 //!     5, 
-//!     SimilarityMetric::Cosine
+//!     None  // Auto-detects from HNSW index metric
 //! )?;
 //! # Ok(())
 //! # }
@@ -54,11 +54,11 @@ use crate::errors::{VectorLiteError, VectorLiteResult};
 /// # Examples
 ///
 /// ```rust
-/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-/// client.create_collection("docs", IndexType::HNSW)?;
+/// client.create_collection("docs", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
 /// # Ok(())
 /// # }
 /// ```
@@ -80,15 +80,22 @@ impl VectorLiteClient {
         }
     }
 
-    pub fn create_collection(&mut self, name: &str, index_type: IndexType) -> VectorLiteResult<()> {
+    pub fn create_collection(&mut self, name: &str, index_type: IndexType, metric: Option<SimilarityMetric>) -> VectorLiteResult<()> {
         if self.collections.contains_key(name) {
             return Err(VectorLiteError::CollectionAlreadyExists { name: name.to_string() });
         }
 
         let dimension = self.embedding_function.dimension();
         let index = match index_type {
-            IndexType::Flat => VectorIndexWrapper::Flat(crate::FlatIndex::new(dimension, Vec::new())),
-            IndexType::HNSW => VectorIndexWrapper::HNSW(Box::new(crate::HNSWIndex::new(dimension))),
+            IndexType::Flat => {
+                VectorIndexWrapper::Flat(crate::FlatIndex::new(dimension, Vec::new()))
+            },
+            IndexType::HNSW => {
+                // HNSW requires a metric to build the graph structure
+                // No default is provided to force explicit specification
+                let used_metric = metric.ok_or(VectorLiteError::MetricRequired)?;
+                VectorIndexWrapper::HNSW(Box::new(crate::HNSWIndex::new(dimension, used_metric)))
+            },
         };
 
         let collection = Collection {
@@ -129,11 +136,25 @@ impl VectorLiteClient {
     }
 
 
-    pub fn search_text_in_collection(&self, collection_name: &str, query_text: &str, k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
+    pub fn search_text_in_collection(&self, collection_name: &str, query_text: &str, k: usize, similarity_metric: Option<SimilarityMetric>) -> VectorLiteResult<Vec<SearchResult>> {
         let collection = self.collections.get(collection_name)
             .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.to_string() })?;
         
-        collection.search_text(query_text, k, similarity_metric, self.embedding_function.as_ref())
+        let metric = match similarity_metric {
+            Some(m) => m,
+            None => {
+                let index_guard = collection.index.read().map_err(|_| {
+                    VectorLiteError::LockError("Failed to acquire read lock for metric detection".to_string())
+                })?;
+                
+                match index_guard.metric() {
+                    Some(m) => m,
+                    None => SimilarityMetric::Cosine, 
+                }
+            }
+        };
+        
+        collection.search_text(query_text, k, metric, self.embedding_function.as_ref())
     }
 
 
@@ -178,16 +199,17 @@ impl VectorLiteClient {
 /// # Examples
 ///
 /// ```rust
-/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 /// 
 /// // For small datasets with exact search requirements
-/// client.create_collection("small_data", IndexType::Flat)?;
+/// // Flat index - metric is optional
+/// client.create_collection("small_data", IndexType::Flat, None)?;
 /// 
 /// // For large datasets with approximate search tolerance
-/// client.create_collection("large_data", IndexType::HNSW)?;
+/// client.create_collection("large_data", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
 /// # Ok(())
 /// # }
 /// ```
@@ -235,11 +257,11 @@ type CollectionRef = Arc<Collection>;
 /// # Examples
 ///
 /// ```rust
-/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+/// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-/// client.create_collection("docs", IndexType::HNSW)?;
+/// client.create_collection("docs", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
 /// 
 /// let info = client.get_collection_info("docs")?;
 /// println!("Collection '{}' has {} vectors of dimension {}", 
@@ -374,13 +396,14 @@ impl Collection {
         
         // Acquire read lock for search
         let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_text".to_string()))?;
-        Ok(index.search(&query_embedding, k, similarity_metric))
+
+        index.search(&query_embedding, k, similarity_metric) 
     }
 
 
     pub fn get_vector(&self, id: u64) -> VectorLiteResult<Option<Vector>> {
         let index = self.index.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_vector".to_string()))?;
-        Ok(index.get_vector(id).cloned())
+        Ok(index.get_vector(id))
     }
 
     pub fn get_info(&self) -> VectorLiteResult<CollectionInfo> {
@@ -424,12 +447,12 @@ impl Collection {
     /// # Examples
     ///
     /// ```rust
-    /// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType};
+    /// use vectorlite::{VectorLiteClient, EmbeddingGenerator, IndexType, SimilarityMetric};
     /// use std::path::Path;
     ///
     /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
-    /// client.create_collection("docs", IndexType::HNSW)?;
+    /// client.create_collection("docs", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
     /// client.add_text_to_collection("docs", "Hello world", None)?;
     ///
     /// let collection = client.get_collection("docs").unwrap();
@@ -514,7 +537,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        let result = client.create_collection("test_collection", IndexType::Flat);
+        let result = client.create_collection("test_collection", IndexType::Flat, None);
         assert!(result.is_ok());
         
         // Check collection exists
@@ -528,10 +551,10 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create first collection
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Try to create duplicate
-        let result = client.create_collection("test_collection", IndexType::Flat);
+        let result = client.create_collection("test_collection", IndexType::Flat, None);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), VectorLiteError::CollectionAlreadyExists { .. }));
     }
@@ -542,7 +565,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Get collection
         let collection = client.get_collection("test_collection");
@@ -560,7 +583,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         assert!(client.has_collection("test_collection"));
         
         // Delete collection
@@ -579,7 +602,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Add text
         let result = client.add_text_to_collection("test_collection", "Hello world", None);
@@ -615,7 +638,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         
         // Test initial state
         let info = client.get_collection_info("test_collection").unwrap();
@@ -639,7 +662,7 @@ mod tests {
         assert_eq!(info.count, 2);
         
         // Test search
-        let results = client.search_text_in_collection("test_collection", "Hello", 1, SimilarityMetric::Cosine).unwrap();
+        let results = client.search_text_in_collection("test_collection", "Hello", 1, Some(SimilarityMetric::Cosine)).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 0);
         
@@ -665,7 +688,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create HNSW collection
-        client.create_collection("hnsw_collection", IndexType::HNSW).unwrap();
+        client.create_collection("hnsw_collection", IndexType::HNSW, Some(SimilarityMetric::Euclidean)).unwrap();
         
         // Add some text
         let id1 = client.add_text_to_collection("hnsw_collection", "First document", None).unwrap();
@@ -677,12 +700,26 @@ mod tests {
         let info = client.get_collection_info("hnsw_collection").unwrap();
         assert_eq!(info.count, 2);
         
-        // Test search
-        let results = client.search_text_in_collection("hnsw_collection", "First", 1, SimilarityMetric::Cosine).unwrap();
+        // Test search with Euclidean (must match the index metric)
+        let results = client.search_text_in_collection("hnsw_collection", "First", 1, Some(SimilarityMetric::Euclidean)).unwrap();
         assert_eq!(results.len(), 1);
     }
 
+    #[test]
+    fn test_hnsw_requires_metric() {
+        let embedding_fn = MockEmbeddingFunction::new(3);
+        let mut client = VectorLiteClient::new(Box::new(embedding_fn));
 
+        // Creating HNSW without metric should fail
+        let result = client.create_collection("hnsw_collection", IndexType::HNSW, None);
+        assert!(result.is_err());
+        match result {
+            Err(VectorLiteError::MetricRequired) => {
+                // Expected error
+            }
+            _ => panic!("Expected MetricRequired error when creating HNSW without metric"),
+        }
+    }
 
     #[test]
     fn test_collection_save_and_load() {
@@ -690,7 +727,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create collection and add some data
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
         client.add_text_to_collection("test_collection", "Another text", None).unwrap();
         
@@ -727,7 +764,7 @@ mod tests {
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
         // Create HNSW collection and add some data
-        client.create_collection("test_hnsw_collection", IndexType::HNSW).unwrap();
+        client.create_collection("test_hnsw_collection", IndexType::HNSW, Some(SimilarityMetric::Euclidean)).unwrap();
         client.add_text_to_collection("test_hnsw_collection", "First document", None).unwrap();
         client.add_text_to_collection("test_hnsw_collection", "Second document", None).unwrap();
         
@@ -741,8 +778,8 @@ mod tests {
         // Create a separate embedding function for testing
         let test_embedding_fn = MockEmbeddingFunction::new(3);
         
-        // Test search on original collection using text search (like the working test)
-        let results = collection.search_text("First", 1, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
+        // Test search on original collection using text search 
+        let results = collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 1);
         
         // Save to temporary file
@@ -765,7 +802,7 @@ mod tests {
         assert!(!info.is_empty);
         
         // Test search functionality using text search
-        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Cosine, &test_embedding_fn).unwrap();
+        let results = loaded_collection.search_text("First", 1, SimilarityMetric::Euclidean, &test_embedding_fn).unwrap();
         assert_eq!(results.len(), 1);
     }
 
@@ -774,7 +811,8 @@ mod tests {
         let embedding_fn = MockEmbeddingFunction::new(3);
         let mut client = VectorLiteClient::new(Box::new(embedding_fn));
         
-        client.create_collection("test_collection", IndexType::Flat).unwrap();
+        // Flat indexes don't need a metric parameter
+        client.create_collection("test_collection", IndexType::Flat, None).unwrap();
         client.add_text_to_collection("test_collection", "Hello world", None).unwrap();
         
         let collection = client.get_collection("test_collection").unwrap();
@@ -792,10 +830,10 @@ mod tests {
     fn test_collection_load_nonexistent_file() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let file_path = temp_dir.path().join("nonexistent.vlc");
-        
+
         let result = Collection::load_from_file(&file_path);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PersistenceError::Io(_)));
+        assert!(matches!(result.unwrap_err(), PersistenceError::FileNotFound(_)));
     }
 
     #[test]

@@ -95,7 +95,14 @@ impl VectorIndex for FlatIndex {
         Ok(())
     }
     
-    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult> {
+    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Result<Vec<SearchResult>, crate::errors::VectorLiteError> {
+        if !self.data.is_empty() && query.len() != self.dim {
+            return Err(crate::errors::VectorLiteError::DimensionMismatch { 
+                expected: self.dim, 
+                actual: query.len() 
+            });
+        }
+        
         let mut similarities: Vec<_> = self.data
         .iter()
         .map(|e| SearchResult {
@@ -108,7 +115,7 @@ impl VectorIndex for FlatIndex {
         
         similarities.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         similarities.truncate(k);
-        similarities
+        Ok(similarities)
     }
     
     fn len(&self) -> usize {
@@ -119,8 +126,8 @@ impl VectorIndex for FlatIndex {
         self.data.is_empty()
     }
     
-    fn get_vector(&self, id: u64) -> Option<&Vector> {
-        self.data.iter().find(|e| e.id == id)
+    fn get_vector(&self, id: u64) -> Option<Vector> {
+        self.data.iter().find(|e| e.id == id).cloned()
     }
     
     fn dimension(&self) -> usize {
@@ -162,7 +169,7 @@ mod tests {
         
         // Verify search works on the deserialized index
         let query = vec![1.1, 0.1, 0.1];
-        let results = deserialized.search(&query, 2, SimilarityMetric::Cosine);
+        let results = deserialized.search(&query, 2, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 2);
         
         // Results should be sorted by score (highest first)
@@ -186,7 +193,7 @@ mod tests {
         
         let index = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
-        let results = index.search(&query, 2, SimilarityMetric::Cosine);
+        let results = index.search(&query, 2, SimilarityMetric::Cosine).unwrap();
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 1); // Most similar (identical)
@@ -203,7 +210,7 @@ mod tests {
         
         let index = FlatIndex::new(2, vectors);
         let query = vec![0.0, 0.0];
-        let results = index.search(&query, 2, SimilarityMetric::Euclidean);
+        let results = index.search(&query, 2, SimilarityMetric::Euclidean).unwrap();
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 1); // Most similar (identical)
@@ -220,7 +227,7 @@ mod tests {
         
         let index = FlatIndex::new(2, vectors);
         let query = vec![0.0, 0.0];
-        let results = index.search(&query, 2, SimilarityMetric::Manhattan);
+        let results = index.search(&query, 2, SimilarityMetric::Manhattan).unwrap();
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 1); // Most similar (identical)
@@ -237,7 +244,7 @@ mod tests {
         
         let index = FlatIndex::new(2, vectors);
         let query = vec![1.0, 2.0];
-        let results = index.search(&query, 2, SimilarityMetric::DotProduct);
+        let results = index.search(&query, 2, SimilarityMetric::DotProduct).unwrap();
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 1); // Most similar (identical)
@@ -255,11 +262,11 @@ mod tests {
         let query = vec![1.0, 2.0];
         
         // Test with cosine similarity
-        let results_cosine = index.search(&query, 1, SimilarityMetric::Cosine);
+        let results_cosine = index.search(&query, 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results_cosine[0].id, 1);
         
         // Test with dot product
-        let results_dot = index.search(&query, 1, SimilarityMetric::DotProduct);
+        let results_dot = index.search(&query, 1, SimilarityMetric::DotProduct).unwrap();
         assert_eq!(results_dot[0].id, 1);
         
         // Scores should be different

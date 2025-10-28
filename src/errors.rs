@@ -37,6 +37,14 @@ pub enum VectorLiteError {
     #[error("Invalid similarity metric: {metric}. Must be 'cosine', 'euclidean', 'manhattan', or 'dotproduct'")]
     InvalidSimilarityMetric { metric: String },
     
+    /// Metric mismatch between search request and index configuration
+    #[error("Metric mismatch: search requested {requested:?} but index was built for {index:?}")]
+    MetricMismatch { requested: crate::SimilarityMetric, index: crate::SimilarityMetric },
+
+    /// Metric required for HNSW index but not provided
+    #[error("HNSW index requires an explicit similarity metric. Add field 'metric' with one of the following: ['cosine', 'euclidean', 'manhattan', 'dotproduct'] ")]
+    MetricRequired,
+
     /// Embedding generation error
     #[error("Embedding generation failed: {0}")]
     EmbeddingError(#[from] crate::embeddings::EmbeddingError),
@@ -70,8 +78,13 @@ impl VectorLiteError {
             VectorLiteError::CollectionAlreadyExists { .. } => StatusCode::CONFLICT,
             VectorLiteError::InvalidIndexType { .. } => StatusCode::BAD_REQUEST,
             VectorLiteError::InvalidSimilarityMetric { .. } => StatusCode::BAD_REQUEST,
+            VectorLiteError::MetricMismatch { .. } => StatusCode::BAD_REQUEST,
+            VectorLiteError::MetricRequired => StatusCode::BAD_REQUEST,
             VectorLiteError::EmbeddingError(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            VectorLiteError::PersistenceError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            VectorLiteError::PersistenceError(e) => match e {
+                crate::persistence::PersistenceError::FileNotFound(_) => StatusCode::NOT_FOUND,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            },
             VectorLiteError::LockError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             VectorLiteError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }

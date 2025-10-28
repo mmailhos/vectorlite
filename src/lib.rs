@@ -45,7 +45,8 @@
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut client = VectorLiteClient::new(Box::new(EmbeddingGenerator::new()?));
 //!
-//!     client.create_collection("quotes", IndexType::HNSW)?;
+//!     // Create HNSW collection with specific metric
+//!     client.create_collection("quotes", IndexType::HNSW, Some(SimilarityMetric::Cosine))?;
 //!     
 //!     let id = client.add_text_to_collection(
 //!         "quotes", 
@@ -57,11 +58,12 @@
 //!         }))
 //!     )?;
 //!
+//!     // Search without specifying metric - automatically uses the index's metric
 //!     let results = client.search_text_in_collection(
 //!         "quotes",
 //!         "beach games",
 //!         3,
-//!         SimilarityMetric::Cosine,
+//!         None, // Auto-detects from HNSW index
 //!     )?;
 //!
 //!     for result in &results {
@@ -78,11 +80,13 @@
 //! - **Complexity**: O(n) search, O(1) insert
 //! - **Memory**: Linear with dataset size
 //! - **Use Case**: Small datasets (< 10K vectors) or exact search requirements
+//! - **Metric Flexibility**: Supports all similarity metrics dynamically
 //!
 //! ### HNSWIndex
 //! - **Complexity**: O(log n) search, O(log n) insert
 //! - **Memory**: ~2-3x vector size due to graph structure
 //! - **Use Case**: Large datasets with approximate search tolerance
+//! - **Metric Flexibility**: Built for a specific metric; searches automatically use the index's metric
 //!
 //! ## Similarity Metrics
 //!
@@ -130,6 +134,7 @@ pub use embeddings::{EmbeddingGenerator, EmbeddingFunction};
 pub use client::{VectorLiteClient, Collection, Settings, IndexType};
 pub use server::{create_app, start_server};
 pub use persistence::{PersistenceError, save_collection_to_file, load_collection_from_file};
+pub use errors::{VectorLiteError, VectorLiteResult};
 
 use serde::{Serialize, Deserialize};
 
@@ -224,7 +229,7 @@ pub trait VectorIndex {
     fn delete(&mut self, id: u64) -> Result<(), String>;
     
     /// Search for the k most similar vectors
-    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> Vec<SearchResult>;
+    fn search(&self, query: &[f64], k: usize, similarity_metric: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>>;
     
     /// Get the number of vectors in the index
     fn len(&self) -> usize;
@@ -233,7 +238,7 @@ pub trait VectorIndex {
     fn is_empty(&self) -> bool;
     
     /// Get a vector by its ID
-    fn get_vector(&self, id: u64) -> Option<&Vector>;
+    fn get_vector(&self, id: u64) -> Option<Vector>;
     
     /// Get the dimension of vectors in this index
     fn dimension(&self) -> usize;
@@ -285,7 +290,7 @@ impl VectorIndex for VectorIndexWrapper {
         }
     }
 
-    fn search(&self, query: &[f64], k: usize, s: SimilarityMetric) -> Vec<SearchResult> {
+    fn search(&self, query: &[f64], k: usize, s: SimilarityMetric) -> VectorLiteResult<Vec<SearchResult>> {
         match self {
             VectorIndexWrapper::Flat(index) => index.search(query, k, s),
             VectorIndexWrapper::HNSW(index) => index.search(query, k, s),
@@ -306,7 +311,7 @@ impl VectorIndex for VectorIndexWrapper {
         }
     }
 
-    fn get_vector(&self, id: u64) -> Option<&Vector> {
+    fn get_vector(&self, id: u64) -> Option<Vector> {
         match self {
             VectorIndexWrapper::Flat(index) => index.get_vector(id),
             VectorIndexWrapper::HNSW(index) => index.get_vector(id),
@@ -317,6 +322,25 @@ impl VectorIndex for VectorIndexWrapper {
         match self {
             VectorIndexWrapper::Flat(index) => index.dimension(),
             VectorIndexWrapper::HNSW(index) => index.dimension(),
+        }
+    }
+}
+
+impl VectorIndexWrapper {
+    /// Get the similarity metric this index was built for (HNSW only)
+    /// Returns None for Flat indexes (which support all metrics)
+    pub fn metric(&self) -> Option<SimilarityMetric> {
+        match self {
+            VectorIndexWrapper::Flat(_) => None,
+            VectorIndexWrapper::HNSW(index) => Some(index.metric()),
+        }
+    }
+    
+    /// Get the index type
+    pub fn index_type(&self) -> IndexType {
+        match self {
+            VectorIndexWrapper::Flat(_) => IndexType::Flat,
+            VectorIndexWrapper::HNSW(_) => IndexType::HNSW,
         }
     }
 }
@@ -336,7 +360,7 @@ impl VectorIndex for VectorIndexWrapper {
 /// let cosine_score = SimilarityMetric::Cosine.calculate(&a, &b);
 /// let euclidean_score = SimilarityMetric::Euclidean.calculate(&a, &b);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
 pub enum SimilarityMetric {
     /// Cosine similarity - scale-invariant, good for normalized embeddings
     /// Range: [-1, 1], where 1 is identical
@@ -662,7 +686,7 @@ mod tests {
         ];
         let store = FlatIndex::new(3, vectors);
         let query = vec![1.0, 0.0, 0.0];
-        let results = store.search(&query, 2, SimilarityMetric::Cosine);
+        let results = store.search(&query, 2, SimilarityMetric::Cosine).unwrap();
         
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].id, 0);
@@ -694,7 +718,7 @@ mod tests {
         
         // Test search through the wrapper
         let query = vec![1.1, 0.1, 0.1];
-        let results = deserialized.search(&query, 1, SimilarityMetric::Cosine);
+        let results = deserialized.search(&query, 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 1);
     }

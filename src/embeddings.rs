@@ -400,7 +400,7 @@ mod tests {
     #[test]
     fn test_batch_embedding_generation() {
         let generator = create_test_generator();
-        let texts = vec![
+        let texts = [
             "first text".to_string(),
             "second text".to_string(),
             "third text".to_string(),

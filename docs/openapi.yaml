@@ -1,0 +1,839 @@
+openapi: 3.0.3
+info:
+  title: VectorLite API
+  description: |
+    A high-performance, in-memory vector database optimized for AI agent and edge workloads.
+    VectorLite provides sub-millisecond semantic search with built-in embedding generation.
+    
+    ## Features
+    
+    - **Sub-millisecond search**: In-memory HNSW or flat search
+    - **Built-in embeddings**: Runs all-MiniLM-L6-v2 locally using Candle
+    - **Thread-safe**: Concurrent read access with atomic ID generation
+    - **Persistence**: Save and restore collections to/from disk
+    - **Flexible metrics**: Cosine, Euclidean, Manhattan, and Dot Product similarity
+    
+    ## Index Types
+    
+    | Index | Search Complexity | Use Case |
+    |-------|------------------|----------|
+    | **Flat** | O(n) | Small datasets (<10K) or exact search |
+    | **HNSW** | O(log n) | Larger datasets or approximate search |
+    
+    ## Similarity Metrics
+    
+    | Metric | Description | Range |
+    |--------|-------------|-------|
+    | **Cosine** | Scale-invariant, good for normalized embeddings | [-1, 1] |
+    | **Euclidean** | Geometric distance, sensitive to magnitude | [0, 1] |
+    | **Manhattan** | L1 norm, robust to outliers | [0, 1] |
+    | **Dot Product** | Raw similarity, requires consistent scaling | unbounded |
+  version: 0.1.5
+  contact:
+    name: VectorLite Support
+    url: https://github.com/mmailhos/vectorlite
+  
+servers:
+  - url: http://localhost:3001
+    description: Local development server
+  - url: http://localhost:3002
+    description: Alternative port
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Collections
+    description: Collection management operations
+  - name: Vectors
+    description: Vector operations (add, search, get, delete)
+  - name: Persistence
+    description: Save and load collection operations
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the server
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  service:
+                    type: string
+                    example: vectorlite
+
+  /collections:
+    get:
+      tags:
+        - Collections
+      summary: List all collections
+      description: Returns a list of all collection names
+      operationId: listCollections
+      responses:
+        '200':
+          description: List of collections
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCollectionsResponse'
+    
+    post:
+      tags:
+        - Collections
+      summary: Create a new collection
+      description: Creates a new collection with the specified index type and similarity metric
+      operationId: createCollection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCollectionRequest'
+            examples:
+              flat_index:
+                summary: Create a flat index
+                value:
+                  name: small_docs
+                  index_type: flat
+                  metric: ""
+              hnsw_cosine:
+                summary: Create HNSW index with cosine metric
+                value:
+                  name: large_docs
+                  index_type: hnsw
+                  metric: cosine
+              hnsw_euclidean:
+                summary: Create HNSW index with euclidean metric
+                value:
+                  name: geo_docs
+                  index_type: hnsw
+                  metric: euclidean
+      responses:
+        '200':
+          description: Collection created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCollectionResponse'
+        '400':
+          description: Bad request (invalid index type, metric, or missing required metric)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_index:
+                  value:
+                    message: "Invalid index type: invalid. Must be 'flat' or 'hnsw'"
+                invalid_metric:
+                  value:
+                    message: "Invalid similarity metric: invalid. Must be 'cosine', 'euclidean', 'manhattan', or 'dotproduct'"
+                metric_required:
+                  value:
+                    message: "HNSW index requires an explicit similarity metric. Add field 'metric' with one of the following: ['cosine', 'euclidean', 'manhattan', 'dotproduct']"
+        '409':
+          description: Collection already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Collection 'docs' already exists"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{name}:
+    get:
+      tags:
+        - Collections
+      summary: Get collection information
+      description: Returns detailed information about a specific collection
+      operationId: getCollectionInfo
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection
+          schema:
+            type: string
+          example: my_docs
+      responses:
+        '200':
+          description: Collection information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CollectionInfoResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Collection 'my_docs' not found"
+    
+    delete:
+      tags:
+        - Collections
+      summary: Delete a collection
+      description: Deletes a collection and all its vectors
+      operationId: deleteCollection
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection
+          schema:
+            type: string
+          example: my_docs
+      responses:
+        '200':
+          description: Collection deleted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateCollectionResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{name}/text:
+    post:
+      tags:
+        - Vectors
+      summary: Add text to collection
+      description: |
+        Adds text to a collection. The text is automatically converted to an embedding,
+        and the vector is added to the collection. Returns the ID of the newly created vector.
+        
+        **Note**: The embedding is generated using the all-MiniLM-L6-v2 model (384 dimensions by default).
+      operationId: addText
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection
+          schema:
+            type: string
+          example: my_docs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddTextRequest'
+            examples:
+              simple:
+                summary: Add text without metadata
+                value:
+                  text: "Hello, world! This is a sample document."
+              with_metadata:
+                summary: Add text with metadata
+                value:
+                  text: "AI agents are revolutionizing software development"
+                  metadata:
+                    author: "John Doe"
+                    tags:
+                      - ai
+                      - agents
+                      - ml
+                    published: "2024-01-15"
+                    views: 1234
+      responses:
+        '200':
+          description: Text added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddTextResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '400':
+          description: Bad request (dimension mismatch or embedding generation error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                dimension_mismatch:
+                  value:
+                    message: "Vector dimension mismatch: expected 384, got 256"
+        '409':
+          description: Duplicate vector ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error (e.g., embedding generation failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{name}/search/text:
+    post:
+      tags:
+        - Vectors
+      summary: Search by text query
+      description: |
+        Searches the collection for vectors similar to the query text.
+        The query is automatically converted to an embedding, then searched using
+        the collection's index and similarity metric.
+      operationId: searchText
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection
+          schema:
+            type: string
+          example: my_docs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchTextRequest'
+            examples:
+              default:
+                summary: Search with default settings
+                value:
+                  query: "machine learning"
+                  k: 5
+              custom_metric:
+                summary: Search with custom similarity metric
+                value:
+                  query: "artificial intelligence"
+                  k: 10
+                  similarity_metric: euclidean
+              max_results:
+                summary: Get top 20 results
+                value:
+                  query: "neural networks"
+                  k: 20
+      responses:
+        '200':
+          description: Search completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+        '400':
+          description: Bad request (invalid similarity metric or metric mismatch)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalid_metric:
+                  value:
+                    message: "Invalid similarity metric: invalid. Must be 'cosine', 'euclidean', 'manhattan', or 'dotproduct'"
+                metric_mismatch:
+                  value:
+                    message: "Metric mismatch: search requested Euclidean but index was built for Cosine"
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{name}/vectors/{id}:
+    get:
+      tags:
+        - Vectors
+      summary: Get vector by ID
+      description: Retrieves a specific vector from a collection by its ID
+      operationId: getVector
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection
+          schema:
+            type: string
+          example: my_docs
+        - name: id
+          in: path
+          required: true
+          description: The ID of the vector
+          schema:
+            type: integer
+            format: int64
+          example: 123
+      responses:
+        '200':
+          description: Vector retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vector:
+                    $ref: '#/components/schemas/Vector'
+        '404':
+          description: Vector or collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    delete:
+      tags:
+        - Vectors
+      summary: Delete a vector
+      description: Deletes a specific vector from a collection by its ID
+      operationId: deleteVector
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection
+          schema:
+            type: string
+          example: my_docs
+        - name: id
+          in: path
+          required: true
+          description: The ID of the vector
+          schema:
+            type: integer
+            format: int64
+          example: 123
+      responses:
+        '200':
+          description: Vector deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Vector or collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/{name}/save:
+    post:
+      tags:
+        - Persistence
+      summary: Save collection to file
+      description: |
+        Saves the entire collection to disk in a binary format (.vlc file).
+        This includes all vectors, the index structure, and metadata.
+        
+        **Note**: The file will be created if it doesn't exist, and overwritten if it does.
+      operationId: saveCollection
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: The name of the collection to save
+          schema:
+            type: string
+          example: my_docs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveCollectionRequest'
+            example:
+              file_path: "./backups/my_docs.vlc"
+      responses:
+        '200':
+          description: Collection saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaveCollectionResponse'
+        '404':
+          description: Collection not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error (e.g., disk I/O failure)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /collections/load:
+    post:
+      tags:
+        - Persistence
+      summary: Load collection from file
+      description: |
+        Loads a collection from a previously saved file (.vlc format).
+        The collection name can be specified, or it will use the name from the saved file.
+        
+        **Note**: This operation will fail if a collection with the same name already exists.
+        You must delete the existing collection first if you want to replace it.
+      operationId: loadCollection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoadCollectionRequest'
+            examples:
+              load_with_name:
+                summary: Load with custom collection name
+                value:
+                  file_path: "./backups/my_docs.vlc"
+                  collection_name: restored_docs
+              load_without_name:
+                summary: Load with original collection name
+                value:
+                  file_path: "./backups/my_docs.vlc"
+      responses:
+        '200':
+          description: Collection loaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoadCollectionResponse'
+        '404':
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "File not found: ./backups/my_docs.vlc"
+        '409':
+          description: Collection already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                message: "Collection 'restored_docs' already exists"
+        '500':
+          description: Internal server error (e.g., invalid file format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    # Request schemas
+    CreateCollectionRequest:
+      type: object
+      required:
+        - name
+        - index_type
+      properties:
+        name:
+          type: string
+          description: Unique name for the collection
+          example: my_docs
+        index_type:
+          type: string
+          enum: [flat, hnsw]
+          description: Type of index to use (flat for exact search, hnsw for approximate)
+          example: hnsw
+        metric:
+          type: string
+          default: ""
+          description: Similarity metric (cosine, euclidean, manhattan, dotproduct). Empty string for default.
+          example: cosine
+      
+    AddTextRequest:
+      type: object
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: The text to add to the collection
+          example: "This is a sample document about machine learning."
+        metadata:
+          type: object
+          description: Optional metadata associated with this text (any JSON object)
+          additionalProperties: true
+          example:
+            author: "John Doe"
+            category: "machine-learning"
+            tags:
+              - ai
+              - ml
+              - research
+    
+    SearchTextRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          description: The search query text
+          example: "neural networks"
+        k:
+          type: integer
+          format: int32
+          default: 10
+          description: Number of results to return
+          minimum: 1
+          maximum: 1000
+          example: 5
+        similarity_metric:
+          type: string
+          enum: [cosine, euclidean, manhattan, dotproduct]
+          description: Override the collection's default similarity metric for this search
+          example: cosine
+    
+    SaveCollectionRequest:
+      type: object
+      required:
+        - file_path
+      properties:
+        file_path:
+          type: string
+          description: Path where the collection should be saved (including .vlc extension)
+          example: "./backups/my_docs.vlc"
+    
+    LoadCollectionRequest:
+      type: object
+      required:
+        - file_path
+      properties:
+        file_path:
+          type: string
+          description: Path to the collection file to load
+          example: "./backups/my_docs.vlc"
+        collection_name:
+          type: string
+          description: Optional name for the loaded collection. If not provided, uses the name from the file.
+          example: restored_docs
+    
+    # Response schemas
+    CreateCollectionResponse:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the created collection
+          example: my_docs
+    
+    AddTextResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          nullable: true
+          description: ID of the newly added vector
+          example: 42
+    
+    SearchResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          nullable: true
+          description: Array of search results sorted by similarity (highest first)
+          items:
+            $ref: '#/components/schemas/SearchResult'
+    
+    SearchResult:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: ID of the matching vector
+          example: 42
+        score:
+          type: number
+          format: float
+          description: Similarity score (higher is more similar)
+          example: 0.9234
+        text:
+          type: string
+          description: Original text that was embedded
+          example: "This document is about machine learning algorithms"
+        metadata:
+          type: object
+          nullable: true
+          description: Metadata associated with this vector (if any)
+          additionalProperties: true
+          example:
+            author: "John Doe"
+            category: "machine-learning"
+    
+    Vector:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Unique identifier for the vector
+          example: 123
+        values:
+          type: array
+          items:
+            type: number
+            format: float
+          description: The embedding vector values (typically 384 dimensions for all-MiniLM-L6-v2)
+          example: [0.1, 0.2, -0.3, 0.4, 0.5, -0.6]
+        text:
+          type: string
+          description: The original text that was embedded to create this vector
+          example: "Sample document text"
+        metadata:
+          type: object
+          nullable: true
+          description: Optional metadata associated with this vector (any JSON object)
+          additionalProperties: true
+          example:
+            author: "John Doe"
+            tags:
+              - tutorial
+              - example
+    
+    ListCollectionsResponse:
+      type: object
+      properties:
+        collections:
+          type: array
+          items:
+            type: string
+          description: List of collection names
+          example: [my_docs, other_collection]
+    
+    CollectionInfoResponse:
+      type: object
+      properties:
+        info:
+          nullable: true
+          $ref: '#/components/schemas/CollectionInfo'
+    
+    CollectionInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name of the collection
+          example: my_docs
+        count:
+          type: integer
+          format: int32
+          description: Number of vectors in the collection
+          example: 1234
+        is_empty:
+          type: boolean
+          description: Whether the collection is empty
+          example: false
+        dimension:
+          type: integer
+          format: int32
+          description: Dimension of vectors in this collection (typically 384 for all-MiniLM-L6-v2)
+          example: 384
+    
+    SaveCollectionResponse:
+      type: object
+      properties:
+        file_path:
+          type: string
+          nullable: true
+          description: Path where the collection was saved
+          example: "./backups/my_docs.vlc"
+    
+    LoadCollectionResponse:
+      type: object
+      properties:
+        collection_name:
+          type: string
+          nullable: true
+          description: Name of the loaded collection
+          example: restored_docs
+    
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: Error message
+          example: "Collection 'my_docs' not found"
+  
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    BadRequest:
+      description: Bad request (validation error)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    Conflict:
+      description: Resource conflict (e.g., already exists)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+

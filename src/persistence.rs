@@ -35,19 +35,28 @@ use crate::{VectorIndexWrapper, Collection, VectorIndex};
 #[derive(Error, Debug)]
 pub enum PersistenceError {
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
-    
+    Io(std::io::Error),
+
+    #[error("File not found: {0}")]
+    FileNotFound(String),
+
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
-    
+
     #[error("Invalid file format: {0}")]
     InvalidFormat(String),
-    
+
     #[error("Version mismatch: expected {expected}, got {actual}")]
     VersionMismatch { expected: String, actual: String },
-    
+
     #[error("Collection error: {0}")]
     Collection(String),
+}
+
+impl From<std::io::Error> for PersistenceError {
+    fn from(error: std::io::Error) -> Self {
+        PersistenceError::Io(error)
+    }
 }
 
 /// File header containing version and format information
@@ -138,9 +147,15 @@ pub fn save_collection_to_file(collection: &Collection, path: &Path) -> Result<(
 
 /// Load a collection from a file
 pub fn load_collection_from_file(path: &Path) -> Result<Collection, PersistenceError> {
-    let json_data = fs::read_to_string(path)?;
+    let json_data = fs::read_to_string(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            PersistenceError::FileNotFound(path.display().to_string())
+        } else {
+            PersistenceError::Io(e)
+        }
+    })?;
     let collection_data: CollectionData = serde_json::from_str(&json_data)?;
-    
+
     // Validate version compatibility
     if collection_data.header.version != "1.0.0" {
         return Err(PersistenceError::VersionMismatch {
@@ -148,7 +163,7 @@ pub fn load_collection_from_file(path: &Path) -> Result<Collection, PersistenceE
             actual: collection_data.header.version,
         });
     }
-    
+
     // Validate format
     if collection_data.header.format != "vectorlite-collection" {
         return Err(PersistenceError::InvalidFormat(format!(
@@ -156,7 +171,7 @@ pub fn load_collection_from_file(path: &Path) -> Result<Collection, PersistenceE
             collection_data.header.format
         )));
     }
-    
+
     Ok(collection_data.to_collection())
 }
 
@@ -229,7 +244,7 @@ mod tests {
         assert_eq!(index.dimension(), 3);
         
         // Test search functionality
-        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine);
+        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 0);
     }
@@ -261,7 +276,7 @@ mod tests {
         assert_eq!(index.dimension(), 3);
         
         // Test search
-        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine);
+        let results = index.search(&[1.1, 2.1, 3.1], 1, SimilarityMetric::Cosine).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, 0);
     }
@@ -272,7 +287,7 @@ mod tests {
         let file_path = temp_dir.path().join("test_hnsw_collection.vlc");
         
         // Create HNSW collection
-        let hnsw_index = HNSWIndex::new(3);
+        let hnsw_index = HNSWIndex::new(3, SimilarityMetric::Euclidean);
         let index = VectorIndexWrapper::HNSW(Box::new(hnsw_index));
         
         let collection = Collection::new("test_hnsw_collection".to_string(), index);
