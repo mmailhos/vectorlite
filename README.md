@@ -62,6 +62,7 @@ docker build \
 ```
 
 ## HTTP API Overview
+
 | Operation             | Method & Endpoint                         | Body                                                               |
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------ |
 | **Health**            | `GET /health`                             | –                                                                  |
@@ -87,8 +88,6 @@ VectorLite supports 2 indexes: **Flat** and **HNSW**.
 
 See [Hierarchical Navigable Small World](https://arxiv.org/abs/1603.09320).
 
-Note: Flat indices support all metrics dynamically. HNSW index must be created with a default distance metric (`cosine`, `euclidean`, `manhattan` or `dotproduct`). 
-
 ### Configuration profiles for HNSW
 
 | Profile              | Features                         | Use Case                       |
@@ -103,6 +102,9 @@ cargo build --features memory-optimized
 
 
 ### Similarity Metrics
+
+A flat index is the most flexible as it allows for all search metric operations. On the other hand, the HNSW index is specifically optimised for a specific distance metric, which will be used for all search operations. When creating a HNSW index, provide a `metric` value with one of: `cosine`, `euclidean`, `manhattan` or `dotproduct`.
+
 - **Cosine**: Default for normalized embeddings, scale-invariant
 - **Euclidean**: Geometric distance, sensitive to vector magnitude
 - **Manhattan**: L1 norm, robust to outliers
