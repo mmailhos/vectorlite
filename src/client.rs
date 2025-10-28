@@ -830,10 +830,10 @@ mod tests {
     fn test_collection_load_nonexistent_file() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let file_path = temp_dir.path().join("nonexistent.vlc");
-        
+
         let result = Collection::load_from_file(&file_path);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), PersistenceError::Io(_)));
+        assert!(matches!(result.unwrap_err(), PersistenceError::FileNotFound(_)));
     }
 
     #[test]

@@ -5,6 +5,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Tests](https://github.com/mmailhos/vectorlite/actions/workflows/rust.yml/badge.svg?branch=main)](https://github.com/mmailhos/vectorlite/actions)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-3.0.3-green.svg)](docs/openapi.yaml)
 
 **A tiny, in-process Rust vector store with built-in embeddings for sub-millisecond semantic search.**
 
@@ -74,7 +75,10 @@ docker build \
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |
 | **Load collection**   | `POST /collections/load`                  | `{"file_path": "./collection.vlc", "collection_name": "restored"}` |
 
+
 ## Index Types
+
+VectorLite supports 2 indexes: **Flat** and **HNSW**.
 
 | Index    | Search Complexity | Insert   | Use Case                              |
 | -------- | ----------------- | -------- | ------------------------------------- |

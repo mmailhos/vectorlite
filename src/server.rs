@@ -53,8 +53,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    response::Json,
+    response::{Json, IntoResponse, Response},
     routing::{get, post, delete},
     Router,
 };
@@ -63,7 +62,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing::{info, error};
+use tracing::info;
 
 use crate::{VectorLiteClient, SearchResult, SimilarityMetric, IndexType};
 use crate::errors::{VectorLiteError, VectorLiteResult};
@@ -165,6 +164,20 @@ fn parse_similarity_metric(metric: &str) -> VectorLiteResult<SimilarityMetric> {
     }
 }
 
+// Implement IntoResponse for VectorLiteError to enable automatic error responses
+impl IntoResponse for VectorLiteError {
+    fn into_response(self) -> Response {
+        let status = self.status_code();
+        let error_message = self.to_string();
+
+        let body = Json(ErrorResponse {
+            message: error_message,
+        });
+
+        (status, body).into_response()
+    }
+}
+
 // Handlers
 async fn health_check() -> Json<serde_json::Value> {
     Json(serde_json::json!({
@@ -175,8 +188,8 @@ async fn health_check() -> Json<serde_json::Value> {
 
 async fn list_collections(
     State(state): State<AppState>,
-) -> Result<Json<ListCollectionsResponse>, StatusCode> {
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+) -> Result<Json<ListCollectionsResponse>, VectorLiteError> {
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for list_collections".to_string()))?;
     let collections = client.list_collections();
     Ok(Json(ListCollectionsResponse {
         collections,
@@ -186,87 +199,58 @@ async fn list_collections(
 async fn create_collection(
     State(state): State<AppState>,
     Json(payload): Json<CreateCollectionRequest>,
-) -> Result<Json<CreateCollectionResponse>, StatusCode> {
-    let index_type = match parse_index_type(&payload.index_type) {
-        Ok(t) => t,
-        Err(e) => {
-            return Err(e.status_code());
-        }
-    };
+) -> Result<Json<CreateCollectionResponse>, VectorLiteError> {
+    let index_type = parse_index_type(&payload.index_type)?;
 
     // Parse metric - optional for Flat index, required for HNSW
     let metric = if payload.metric.is_empty() {
         None  // No metric specified
     } else {
-        match parse_similarity_metric(&payload.metric) {
-            Ok(m) => Some(m),
-            Err(e) => {
-                return Err(e.status_code());
-            }
-        }
+        Some(parse_similarity_metric(&payload.metric)?)
     };
 
-    let mut client = state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.create_collection(&payload.name, index_type, metric) {
-        Ok(_) => {
-            info!("Created collection: {}", payload.name);
-            Ok(Json(CreateCollectionResponse {
-                name: payload.name,
-            }))
-        }
-        Err(e) => {
-            error!("Failed to create collection '{}': {}", payload.name, e);
-            Err(e.status_code())
-        }
-    }
+    let mut client = state.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for create_collection".to_string()))?;
+    client.create_collection(&payload.name, index_type, metric)?;
+    info!("Created collection: {}", payload.name);
+    Ok(Json(CreateCollectionResponse {
+        name: payload.name,
+    }))
 }
 
 async fn get_collection_info(
     State(state): State<AppState>,
     Path(collection_name): Path<String>,
-) -> Result<Json<CollectionInfoResponse>, StatusCode> {
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.get_collection_info(&collection_name) {
-        Ok(info) => Ok(Json(CollectionInfoResponse {
-            info: Some(info),
-        })),
-        Err(e) => Err(e.status_code()),
-    }
+) -> Result<Json<CollectionInfoResponse>, VectorLiteError> {
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_collection_info".to_string()))?;
+    let info = client.get_collection_info(&collection_name)?;
+    Ok(Json(CollectionInfoResponse {
+        info: Some(info),
+    }))
 }
 
 async fn delete_collection(
     State(state): State<AppState>,
     Path(collection_name): Path<String>,
-) -> Result<Json<CreateCollectionResponse>, StatusCode> {
-    let mut client = state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.delete_collection(&collection_name) {
-        Ok(_) => {
-            info!("Deleted collection: {}", collection_name);
-            Ok(Json(CreateCollectionResponse {
-                name: collection_name,
-            }))
-        }
-        Err(e) => Err(e.status_code()),
-    }
+) -> Result<Json<CreateCollectionResponse>, VectorLiteError> {
+    let mut client = state.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for delete_collection".to_string()))?;
+    client.delete_collection(&collection_name)?;
+    info!("Deleted collection: {}", collection_name);
+    Ok(Json(CreateCollectionResponse {
+        name: collection_name,
+    }))
 }
 
 async fn add_text(
     State(state): State<AppState>,
     Path(collection_name): Path<String>,
     Json(payload): Json<AddTextRequest>,
-) -> Result<Json<AddTextResponse>, StatusCode> {
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.add_text_to_collection(&collection_name, &payload.text, payload.metadata) {
-        Ok(id) => {
-            info!("Added text to collection '{}' with ID: {}", collection_name, id);
-            Ok(Json(AddTextResponse {
-                id: Some(id),
-            }))
-        }
-        Err(e) => {
-            Err(e.status_code())
-        }
-    }
+) -> Result<Json<AddTextResponse>, VectorLiteError> {
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for add_text".to_string()))?;
+    let id = client.add_text_to_collection(&collection_name, &payload.text, payload.metadata)?;
+    info!("Added text to collection '{}' with ID: {}", collection_name, id);
+    Ok(Json(AddTextResponse {
+        id: Some(id),
+    }))
 }
 
 
@@ -275,144 +259,99 @@ async fn search_text(
     State(state): State<AppState>,
     Path(collection_name): Path<String>,
     Json(payload): Json<SearchTextRequest>,
-) -> Result<Json<SearchResponse>, StatusCode> {
+) -> Result<Json<SearchResponse>, VectorLiteError> {
     let k = payload.k.unwrap_or(10);
     let similarity_metric = match payload.similarity_metric {
-        Some(metric) => match parse_similarity_metric(&metric) {
-            Ok(m) => Some(m),
-            Err(e) => {
-                return Err(e.status_code());
-            }
-        },
+        Some(metric) => Some(parse_similarity_metric(&metric)?),
         None => None, // No metric specified - will auto-detect
     };
 
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.search_text_in_collection(&collection_name, &payload.query, k, similarity_metric) {
-        Ok(results) => {
-            info!("Search completed for collection '{}' with {} results", collection_name, results.len());
-            Ok(Json(SearchResponse {
-                results: Some(results),
-            }))
-        }
-        Err(e) => Err(e.status_code()),
-    }
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for search_text".to_string()))?;
+    let results = client.search_text_in_collection(&collection_name, &payload.query, k, similarity_metric)?;
+    info!("Search completed for collection '{}' with {} results", collection_name, results.len());
+    Ok(Json(SearchResponse {
+        results: Some(results),
+    }))
 }
 
 
 async fn get_vector(
     State(state): State<AppState>,
     Path((collection_name, vector_id)): Path<(String, u64)>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.get_vector_from_collection(&collection_name, vector_id) {
-        Ok(Some(vector)) => {
-            Ok(Json(serde_json::json!({
-                "vector": vector
-            })))
-        }
-        Ok(None) => {
-            Err(StatusCode::NOT_FOUND)
-        }
-        Err(e) => {
-            Err(e.status_code())
-        }
-    }
+) -> Result<Json<serde_json::Value>, VectorLiteError> {
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for get_vector".to_string()))?;
+    let vector = client.get_vector_from_collection(&collection_name, vector_id)?
+        .ok_or(VectorLiteError::VectorNotFound { id: vector_id })?;
+    Ok(Json(serde_json::json!({
+        "vector": vector
+    })))
 }
 
 async fn delete_vector(
     State(state): State<AppState>,
     Path((collection_name, vector_id)): Path<(String, u64)>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    match client.delete_from_collection(&collection_name, vector_id) {
-        Ok(_) => {
-            info!("Deleted vector {} from collection '{}'", vector_id, collection_name);
-            Ok(Json(serde_json::json!({})))
-        }
-        Err(e) => {
-            Err(e.status_code())
-        }
-    }
+) -> Result<Json<serde_json::Value>, VectorLiteError> {
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for delete_vector".to_string()))?;
+    client.delete_from_collection(&collection_name, vector_id)?;
+    info!("Deleted vector {} from collection '{}'", vector_id, collection_name);
+    Ok(Json(serde_json::json!({})))
 }
 
 async fn save_collection(
     State(state): State<AppState>,
     Path(collection_name): Path<String>,
     Json(payload): Json<SaveCollectionRequest>,
-) -> Result<Json<SaveCollectionResponse>, StatusCode> {
-    let client = state.read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+) -> Result<Json<SaveCollectionResponse>, VectorLiteError> {
+    let client = state.read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for save_collection".to_string()))?;
+
     // Get the collection
-    let collection = match client.get_collection(&collection_name) {
-        Some(collection) => collection,
-        None => {
-            return Err(StatusCode::NOT_FOUND);
-        }
-    };
+    let collection = client.get_collection(&collection_name)
+        .ok_or_else(|| VectorLiteError::CollectionNotFound { name: collection_name.clone() })?;
 
     // Convert file path to PathBuf
     let file_path = PathBuf::from(&payload.file_path);
-    
+
     // Save the collection
-    match collection.save_to_file(&file_path) {
-        Ok(_) => {
-            info!("Saved collection '{}' to file: {}", collection_name, payload.file_path);
-            Ok(Json(SaveCollectionResponse {
-                file_path: Some(payload.file_path),
-            }))
-        }
-        Err(_) => {
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
-        }
-    }
+    collection.save_to_file(&file_path)?;
+    info!("Saved collection '{}' to file: {}", collection_name, payload.file_path);
+    Ok(Json(SaveCollectionResponse {
+        file_path: Some(payload.file_path),
+    }))
 }
 
 async fn load_collection(
     State(state): State<AppState>,
     Json(payload): Json<LoadCollectionRequest>,
-) -> Result<Json<LoadCollectionResponse>, StatusCode> {
+) -> Result<Json<LoadCollectionResponse>, VectorLiteError> {
     // Convert file path to PathBuf
     let file_path = PathBuf::from(&payload.file_path);
-    
+
     // Load the collection from file
-    let collection = match crate::Collection::load_from_file(&file_path) {
-        Ok(collection) => collection,
-        Err(e) => {
-            // Check if it's a file not found error
-            if let crate::persistence::PersistenceError::Io(io_err) = &e
-                && io_err.kind() == std::io::ErrorKind::NotFound {
-                return Err(VectorLiteError::FileNotFound(format!("File not found: {}", payload.file_path)).status_code());
-            }
-            return Err(VectorLiteError::from(e).status_code());
-        }
-    };
+    let collection = crate::Collection::load_from_file(&file_path)?;
 
     // Determine the collection name to use
     let collection_name = payload.collection_name.unwrap_or_else(|| collection.name().to_string());
-    
+
     // Add the collection to the client
-    let mut client = state.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    
+    let mut client = state.write().map_err(|_| VectorLiteError::LockError("Failed to acquire write lock for load_collection".to_string()))?;
+
     // Check if collection already exists
     if client.has_collection(&collection_name) {
-        return Err(StatusCode::CONFLICT);
+        return Err(VectorLiteError::CollectionAlreadyExists { name: collection_name });
     }
 
     // Extract the index from the loaded collection
     let index = {
-        let index_guard = collection.index_read().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let index_guard = collection.index_read().map_err(|_| VectorLiteError::LockError("Failed to acquire read lock for collection index".to_string()))?;
         (*index_guard).clone()
     };
-    
+
     // Create a new collection with the loaded data
     let new_collection = crate::Collection::new(collection_name.clone(), index);
-    
+
     // Add the collection to the client
-    if client.add_collection(new_collection).is_err() {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    
+    client.add_collection(new_collection)?;
+
     info!("Loaded collection '{}' from file: {}", collection_name, payload.file_path);
     Ok(Json(LoadCollectionResponse {
         collection_name: Some(collection_name),
