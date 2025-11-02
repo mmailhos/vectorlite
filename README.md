@@ -76,6 +76,14 @@ docker build \
 | **Save collection**   | `POST /collections/{name}/save`           | `{"file_path": "./collection.vlc"}`                                |
 | **Load collection**   | `POST /collections/load`                  | `{"file_path": "./collection.vlc", "collection_name": "restored"}` |
 
+### HTTP Clients
+
+You can integrate with Vectorlite using the following HTTP client libraries:
+- [JavaScript/TypeScript client](https://github.com/mmailhos/vectorlite-client-js)
+- [Go client](https://github.com/mmailhos/vectorlite-client-go)
+
+Or simply generate your own from [Open API specs](https://github.com/mmailhos/vectorlite/blob/main/docs/openapi.yaml).
+
 
 ## Index Types
 
